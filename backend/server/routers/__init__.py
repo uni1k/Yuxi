@@ -46,8 +46,10 @@ if not _LITE_MODE:
     from server.routers.graph_router import graph
     from server.routers.knowledge_router import knowledge
     from server.routers.knowledge_eval_router import evaluation
+    from server.routers.import_graph_router import import_graph  # 私有扩展：一键导入+图谱索引
 
     # 知识库与图谱能力依赖较重，LITE 模式下跳过这组接口。
     router.include_router(knowledge)  # /api/knowledge/* 知识库管理与检索
     router.include_router(evaluation)  # /api/evaluation/* 知识库评估
     router.include_router(graph)  # /api/graph/* 图谱查询与管理
+    router.include_router(import_graph)  # /api/knowledge/* 私有扩展接口
