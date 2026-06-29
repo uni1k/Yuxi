@@ -797,6 +797,18 @@ async def add_documents(
             }
             for index, item in enumerate(processed_items)
         ]
+        logger.warning(f"[run_ingest] final_items={final_items}")
+        for index, item in enumerate(final_items):
+            has_error_key = "error" in item
+            is_failed_status = item.get("status") == "failed"
+            logger.warning(
+                f"[run_ingest] item[{index}] "
+                f"status={item.get('status')!r} "
+                f"error={item.get('error')!r} "
+                f"has_error_key={has_error_key} "
+                f"is_failed_status={is_failed_status} "
+                f"keys={list(item.keys())}"
+            )
         failed_count = len([item for item in final_items if "error" in item or item.get("status") == "failed"])
 
         summary = {
