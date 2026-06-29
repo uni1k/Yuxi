@@ -2,7 +2,7 @@
   <main class="cli-auth-view">
     <section class="cli-auth-panel">
       <div class="cli-auth-header">
-        <p class="eyebrow">Yuxi CLI</p>
+        <p class="eyebrow">{{ cliName }}</p>
         <h1>确认命令行登录</h1>
       </div>
 
@@ -29,7 +29,7 @@
           <dl>
             <div>
               <dt>凭据名称</dt>
-              <dd>{{ session?.key_name || 'Yuxi CLI' }}</dd>
+              <dd>{{ session?.key_name || cliName }}</dd>
             </div>
             <div>
               <dt>状态</dt>
@@ -53,8 +53,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { authApi } from '@/apis/auth_api'
+import { useInfoStore } from '@/stores/info'
 
 const route = useRoute()
+const infoStore = useInfoStore()
 const loading = ref(true)
 const approving = ref(false)
 const approved = ref(false)
@@ -66,6 +68,7 @@ const userCode = computed(() =>
     .trim()
     .toUpperCase()
 )
+const cliName = computed(() => infoStore.branding?.cli_name?.trim() || 'CLI')
 
 async function loadSession() {
   if (!userCode.value) {
@@ -95,7 +98,10 @@ async function approveSession() {
   }
 }
 
-onMounted(loadSession)
+onMounted(async () => {
+  await infoStore.loadInfoConfig()
+  await loadSession()
+})
 </script>
 
 <style scoped lang="less">

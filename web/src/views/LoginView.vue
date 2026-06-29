@@ -256,10 +256,16 @@
 
     <!-- 页面底部：版权信息等 -->
     <footer class="page-footer">
-      <div class="footer-links">
-        <a href="https://github.com/xerrors" target="_blank">联系我们</a>
-        <span class="divider">|</span>
-        <a href="https://github.com/xerrors/Yuxi" target="_blank">使用帮助</a>
+      <div v-if="showFooterLinks" class="footer-links">
+        <template v-if="supportUrl">
+          <a :href="supportUrl" target="_blank" rel="noopener noreferrer">{{ supportLabel }}</a>
+        </template>
+        <span v-if="supportUrl && showAgreementConsent" class="divider">|</span>
+        <template v-if="showAgreementConsent">
+          <a :href="userAgreementUrl" target="_blank" rel="noopener noreferrer">用户协议</a>
+          <span class="divider">|</span>
+          <a :href="privacyPolicyUrl" target="_blank" rel="noopener noreferrer">隐私协议</a>
+        </template>
       </div>
       <div class="copyright">
         &copy; {{ new Date().getFullYear() }} {{ brandName }}. All Rights Reserved.
@@ -303,7 +309,7 @@ const brandOrgName = computed(() => {
 })
 const brandName = computed(() => {
   const orgName = brandOrgName.value
-  const brandNameRaw = infoStore.branding?.name?.trim() || 'Yuxi'
+  const brandNameRaw = infoStore.branding?.name?.trim() || '智能平台'
 
   if (orgName && brandNameRaw && orgName !== brandNameRaw) {
     return brandNameRaw
@@ -317,9 +323,16 @@ const userAgreementUrl = computed(() => {
 const privacyPolicyUrl = computed(() => {
   return infoStore.footer?.privacy_policy_url?.trim() || ''
 })
+const supportUrl = computed(() => {
+  return infoStore.links?.support_url?.trim() || ''
+})
+const supportLabel = computed(() => {
+  return infoStore.links?.support_label?.trim() || '帮助中心'
+})
 const showAgreementConsent = computed(() => {
   return Boolean(userAgreementUrl.value && privacyPolicyUrl.value)
 })
+const showFooterLinks = computed(() => showAgreementConsent.value || Boolean(supportUrl.value))
 
 // 状态
 const isFirstRun = ref(false)

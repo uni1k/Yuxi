@@ -33,9 +33,9 @@
             </div>
           </a-menu-item>
           <a-menu-divider />
-          <a-menu-item key="docs" @click="openDocs">
+          <a-menu-item v-if="docsUrl" key="docs" @click="openDocs">
             <template #icon><BookOpen :size="16" /></template>
-            <span class="menu-text">文档中心</span>
+            <span class="menu-text">{{ docsLabel }}</span>
           </a-menu-item>
           <a-menu-item key="theme" @click="toggleTheme">
             <template #icon>
@@ -72,6 +72,7 @@
 <script setup>
 import { computed, ref, inject, useSlots } from 'vue'
 import { useRouter } from 'vue-router'
+import { useInfoStore } from '@/stores/info'
 import { useUserStore } from '@/stores/user'
 import DebugComponent from '@/components/DebugComponent.vue'
 import { message } from 'ant-design-vue'
@@ -81,6 +82,7 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 
 const router = useRouter()
+const infoStore = useInfoStore()
 const userStore = useUserStore()
 const themeStore = useThemeStore()
 const slots = useSlots()
@@ -92,6 +94,8 @@ const showDebug = ref(false)
 const { openSettingsModal } = inject('settingsModal', {})
 
 const avatarDefaultSrc = computed(() => (userStore.uid ? generatePixelAvatar(userStore.uid) : ''))
+const docsUrl = computed(() => infoStore.links?.docs_url?.trim() || '')
+const docsLabel = computed(() => infoStore.links?.docs_label?.trim() || '文档中心')
 
 defineProps({
   showRole: {
@@ -132,7 +136,8 @@ const goToLogin = () => {
 }
 
 const openDocs = () => {
-  window.open('https://xerrors.github.io/Yuxi/', '_blank', 'noopener,noreferrer')
+  if (!docsUrl.value) return
+  window.open(docsUrl.value, '_blank', 'noopener,noreferrer')
 }
 
 const toggleTheme = () => {

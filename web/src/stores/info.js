@@ -21,13 +21,14 @@ export const useInfoStore = defineStore('info', () => {
 
   // 计算属性 - 品牌信息
   const branding = computed(
-    () =>
-      infoConfig.value.branding || {
-        name: '',
-        title: '',
-        subtitle: '',
-        subtitles: []
-      }
+    () => ({
+      name: '',
+      title: '',
+      subtitle: '',
+      subtitles: [],
+      cli_name: 'CLI',
+      ...(infoConfig.value.branding || {})
+    })
   )
 
   // 计算属性 - 页脚信息
@@ -36,6 +37,14 @@ export const useInfoStore = defineStore('info', () => {
     user_agreement_url: '',
     privacy_policy_url: '',
     ...(infoConfig.value.footer || {})
+  }))
+
+  const links = computed(() => ({
+    docs_label: '',
+    docs_url: '',
+    support_label: '',
+    support_url: '',
+    ...(infoConfig.value.links || {})
   }))
 
   // 动作方法
@@ -85,6 +94,7 @@ export const useInfoStore = defineStore('info', () => {
     organization,
     branding,
     footer,
+    links,
 
     // 方法
     toggleDebugMode,
