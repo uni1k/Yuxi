@@ -797,19 +797,7 @@ async def add_documents(
             }
             for index, item in enumerate(processed_items)
         ]
-        logger.warning(f"[run_ingest] final_items={final_items}")
-        for index, item in enumerate(final_items):
-            has_error_key = "error" in item
-            is_failed_status = item.get("status") == "failed"
-            logger.warning(
-                f"[run_ingest] item[{index}] "
-                f"status={item.get('status')!r} "
-                f"error={item.get('error')!r} "
-                f"has_error_key={has_error_key} "
-                f"is_failed_status={is_failed_status} "
-                f"keys={list(item.keys())}"
-            )
-        failed_count = len([item for item in final_items if "error" in item or item.get("status") == "failed"])
+        failed_count = len([item for item in final_items if _is_failed_item(item)])
 
         summary = {
             "kb_id": kb_id,
@@ -938,6 +926,14 @@ def _append_document_action_result_sample(items: list[dict], item: dict) -> None
         items.append(item)
 
 
+def _is_failed_item(item: dict) -> bool:
+    """判断单个处理结果是否失败：显式失败状态，或携带非空错误信息。
+
+    文件元数据成功时也会带 `error: None`，因此不能仅凭 `error` key 是否存在来判定失败。
+    """
+    return item.get("status") == "failed" or bool(item.get("error"))
+
+
 async def _run_parse_file_ids(
     *,
     context: TaskContext,
@@ -963,7 +959,7 @@ async def _run_parse_file_ids(
             logger.error(f"Parse failed for {file_id}: {e}")
             processed_items.append({"file_id": file_id, "status": "failed", "error": str(e)})
 
-    failed_count = len([p for p in processed_items if "error" in p])
+    failed_count = len([p for p in processed_items if _is_failed_item(p)])
     message = f"解析完成，失败 {failed_count} 个"
     result_payload = {"items": processed_items, "processed": len(processed_items), "failed": failed_count}
     await context.set_result(result_payload)
@@ -1012,7 +1008,7 @@ async def _run_index_file_ids(
             logger.error(f"Index failed for {file_id}: {e}")
             processed_items.append({"file_id": file_id, "status": "failed", "error": str(e)})
 
-    failed_count = len([p for p in processed_items if "error" in p])
+    failed_count = len([p for p in processed_items if _is_failed_item(p)])
     message = f"入库完成，失败 {failed_count} 个"
     result_payload = {"items": processed_items, "processed": len(processed_items), "failed": failed_count}
     await context.set_result(result_payload)
