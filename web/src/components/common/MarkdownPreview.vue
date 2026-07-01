@@ -1,17 +1,18 @@
 <template>
   <div
+    ref="previewRef"
     :class="[
       'yk-markdown-preview',
       'flat-md-preview',
       { 'is-dark': themeStore.isDark, 'is-compact': compact }
     ]"
     v-html="renderedMarkdown"
-    @click="handleSvgAction"
+    @click="handleMarkdownAction"
   ></div>
 </template>
 
 <script setup>
-import { computed, shallowRef, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import { renderMarkdown } from '@/utils/markdown_preview'
 import 'katex/dist/katex.min.css'
@@ -24,16 +25,47 @@ const props = defineProps({
   compact: {
     type: Boolean,
     default: false
+  },
+  codeCopy: {
+    type: Boolean,
+    default: false
   }
 })
 
 const themeStore = useThemeStore()
 const shikiTheme = computed(() => (themeStore.isDark ? 'github-dark' : 'github-light'))
+const previewRef = ref(null)
 const renderedMarkdown = shallowRef('')
+const copiedTimers = new WeakMap()
+
+const enhanceCodeBlocks = () => {
+  const root = previewRef.value
+  if (!root) return
+
+  root.querySelectorAll('pre:not(.fm-json)').forEach((pre) => {
+    if (pre.closest('.markdown-code-block')) return
+
+    const parent = pre.parentNode
+    if (!parent) return
+
+    const wrapper = document.createElement('div')
+    wrapper.className = 'markdown-code-block'
+    parent.insertBefore(wrapper, pre)
+    wrapper.appendChild(pre)
+
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'markdown-code-copy-btn'
+    button.textContent = '复制'
+    button.setAttribute('aria-label', '复制代码')
+    button.setAttribute('title', '复制代码')
+    wrapper.appendChild(button)
+  })
+}
 
 watch(
-  [() => props.content, shikiTheme],
-  async ([content, theme], _, onCleanup) => {
+  [() => props.content, shikiTheme, () => props.codeCopy],
+  async ([content, theme, codeCopy], _, onCleanup) => {
     let expired = false
     onCleanup(() => {
       expired = true
@@ -45,14 +77,29 @@ watch(
     }
 
     const html = await renderMarkdown(content, { theme })
-    if (!expired) renderedMarkdown.value = html
+    if (!expired) {
+      renderedMarkdown.value = html
+      if (!codeCopy) return
+
+      await nextTick()
+      if (!expired) enhanceCodeBlocks()
+    }
   },
   { immediate: true }
 )
 
-// === SVG 操作按钮事件委托 ===
-const handleSvgAction = async (e) => {
-  const btn = e.target.closest('.svg-copy-btn, .svg-png-btn')
+// === Markdown 内嵌操作按钮事件委托 ===
+const handleMarkdownAction = async (e) => {
+  const target = e.target instanceof Element ? e.target : e.target?.parentElement
+  if (!target) return
+
+  const codeCopyBtn = target.closest('.markdown-code-copy-btn')
+  if (codeCopyBtn) {
+    await copyCodeBlock(codeCopyBtn)
+    return
+  }
+
+  const btn = target.closest('.svg-copy-btn, .svg-png-btn')
   if (!btn) return
 
   const container = btn.closest('.svg-inline-render')
@@ -66,10 +113,43 @@ const handleSvgAction = async (e) => {
   }
 }
 
+const writeTextToClipboard = async (text) => {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = text
+  textArea.style.position = 'fixed'
+  textArea.style.left = '-999999px'
+  textArea.style.top = '-999999px'
+  document.body.appendChild(textArea)
+  textArea.focus()
+  textArea.select()
+  const successful = document.execCommand('copy')
+  document.body.removeChild(textArea)
+  if (!successful) throw new Error('execCommand failed')
+}
+
+const copyCodeBlock = async (btn) => {
+  const block = btn.closest('.markdown-code-block')
+  const codeEl = block?.querySelector('pre code') || block?.querySelector('pre')
+  const codeText = codeEl?.textContent || ''
+  if (!codeText) return
+
+  try {
+    await writeTextToClipboard(codeText)
+    showCopiedFeedback(btn)
+  } catch (err) {
+    console.error('复制代码失败:', err)
+  }
+}
+
 // 复制 SVG 源代码
 const copySvgText = async (svgEl, btn) => {
   try {
-    await navigator.clipboard.writeText(svgEl.outerHTML)
+    await writeTextToClipboard(svgEl.outerHTML)
     showCopiedFeedback(btn)
   } catch (err) {
     console.error('复制 SVG 失败:', err)
@@ -129,7 +209,7 @@ const copySvgAsPng = async (svgEl, btn) => {
     console.error('复制为 PNG 失败:', err)
     // fallback: 尝试复制 SVG 源码
     try {
-      await navigator.clipboard.writeText(svgContent)
+      await writeTextToClipboard(svgContent)
       console.log('PNG 复制失败，已回退复制 SVG 源码')
     } catch (fallbackErr) {
       console.error('复制 SVG 源码失败:', fallbackErr)
@@ -141,11 +221,19 @@ const copySvgAsPng = async (svgEl, btn) => {
 
 // 反馈：按钮文字短暂变为「已复制」
 const showCopiedFeedback = (btn) => {
-  const originalText = btn.textContent
+  const originalText = btn.dataset.originalText || btn.textContent
+  btn.dataset.originalText = originalText
+  btn.classList.add('is-copied')
   btn.textContent = '已复制'
-  setTimeout(() => {
-    btn.textContent = originalText
+  const existingTimer = copiedTimers.get(btn)
+  if (existingTimer) window.clearTimeout(existingTimer)
+
+  const timer = window.setTimeout(() => {
+    btn.textContent = btn.dataset.originalText || originalText
+    btn.classList.remove('is-copied')
+    copiedTimers.delete(btn)
   }, 1500)
+  copiedTimers.set(btn, timer)
 }
 </script>
 
@@ -319,6 +407,81 @@ const showCopiedFeedback = (btn) => {
 
   &.is-dark pre.shiki {
     border-color: var(--gray-200);
+  }
+
+  .markdown-code-block {
+    position: relative;
+    max-width: 100%;
+    margin: 12px 0;
+
+    > pre {
+      margin: 0;
+      padding-right: 64px;
+    }
+
+    > pre:not(.shiki) {
+      padding: 12px 64px 12px 14px;
+      border: 1px solid var(--gray-100);
+      border-radius: 8px;
+      overflow: auto;
+      background: var(--gray-25);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  }
+
+  .markdown-code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--gray-200);
+    border-radius: 5px;
+    background: var(--gray-0);
+    color: var(--gray-600);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.72;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease,
+      opacity 0.15s ease;
+    user-select: none;
+    white-space: nowrap;
+
+    &:hover,
+    &:focus-visible,
+    &.is-copied {
+      border-color: var(--gray-300);
+      color: var(--gray-900);
+      opacity: 1;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--main-300);
+      outline-offset: 2px;
+    }
+  }
+
+  &.is-dark .markdown-code-copy-btn {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(12, 13, 13, 0.92);
+    color: var(--gray-500);
+
+    &:hover,
+    &:focus-visible,
+    &.is-copied {
+      border-color: rgba(255, 255, 255, 0.2);
+      color: var(--gray-900);
+    }
   }
 
   table {

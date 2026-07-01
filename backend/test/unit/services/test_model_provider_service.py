@@ -30,6 +30,22 @@ def test_normalize_payload_accepts_enabled_chat_model():
     assert payload["enabled_models"][0]["display_name"] == "anthropic/claude-sonnet-4.5"
 
 
+def test_normalize_payload_accepts_anthropic_provider_type():
+    payload = _normalize_payload(
+        {
+            "provider_id": "xiaomi-token-plan",
+            "display_name": "Xiaomi Token Plan",
+            "provider_type": "anthropic",
+            "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
+            "capabilities": ["chat"],
+            "enabled_models": [{"id": "mimo-v2.5-pro", "type": "chat", "source": "manual"}],
+        }
+    )
+
+    assert payload["provider_type"] == "anthropic"
+    assert payload["enabled_models"][0]["id"] == "mimo-v2.5-pro"
+
+
 def test_normalize_payload_rejects_unknown_enabled_model_type():
     with pytest.raises(ValueError, match="type 必须是"):
         _normalize_payload(

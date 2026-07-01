@@ -9,7 +9,8 @@ import {
   FolderKanban,
   PanelLeftClose,
   PanelLeftOpen,
-  MessageCirclePlus
+  MessageCirclePlus,
+  Search
 } from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
@@ -26,6 +27,7 @@ import DebugComponent from '@/components/DebugComponent.vue'
 import TaskCenterDrawer from '@/components/TaskCenterDrawer.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
 import ConversationNavSection from '@/components/ConversationNavSection.vue'
+import ConversationSearchModal from '@/components/ConversationSearchModal.vue'
 
 const configStore = useConfigStore()
 const agentStore = useAgentStore()
@@ -47,6 +49,7 @@ const showSettingsModal = ref(false)
 const settingsInitialTab = ref('')
 
 const { sidebarCollapsed } = storeToRefs(chatUIStore)
+const conversationSearchOpen = ref(false)
 
 // Provide settings modal methods to child components
 const openSettingsModal = (tab) => {
@@ -145,6 +148,9 @@ const mainList = computed(() => {
   return items
 })
 
+const primaryNavItem = computed(() => mainList.value[0] || null)
+const secondaryNavItems = computed(() => mainList.value.slice(1))
+
 const isNavItemActive = (item) => {
   const activePaths = item.activePaths || [item.path]
   if (item.exactActive) {
@@ -159,6 +165,10 @@ const setSidebarCollapsed = (collapsed) => {
 
 const toggleSidebar = () => {
   setSidebarCollapsed(!sidebarCollapsed.value)
+}
+
+const openConversationSearch = () => {
+  conversationSearchOpen.value = true
 }
 
 const initAgentNavigation = async () => {
@@ -176,6 +186,21 @@ const handleSelectChat = (threadId) => {
   if (!threadId) return
   chatThreadsStore.setCurrentThreadId(threadId)
   router.push({ name: 'AgentCompWithThreadId', params: { thread_id: threadId } })
+}
+
+const handleSearchThreadFound = (thread) => {
+  chatThreadsStore.upsertThread(thread)
+}
+
+const handleSearchSelectThread = (thread) => {
+  if (!thread?.id) return
+  chatThreadsStore.upsertThread(thread)
+  handleSelectChat(thread.id)
+}
+
+const handleCreateConversationFromSearch = () => {
+  chatThreadsStore.setCurrentThreadId(null)
+  router.push({ name: 'AgentComp' })
 }
 
 const handleDeleteChat = async (threadId) => {
@@ -257,9 +282,40 @@ provide('settingsModal', {
         </button>
       </div>
       <div class="nav">
-        <!-- 使用mainList渲染导航项 -->
         <RouterLink
-          v-for="(item, index) in mainList"
+          v-if="primaryNavItem"
+          :to="primaryNavItem.path"
+          class="nav-item"
+          :class="{ active: isNavItemActive(primaryNavItem) }"
+          :active-class="primaryNavItem.action ? '' : 'active'"
+          @click.stop
+        >
+          <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
+            <template #title>{{ primaryNavItem.name }}</template>
+            <component
+              class="icon"
+              :is="isNavItemActive(primaryNavItem) ? primaryNavItem.activeIcon : primaryNavItem.icon"
+              size="18"
+            />
+          </a-tooltip>
+          <span class="nav-text">{{ primaryNavItem.name }}</span>
+        </RouterLink>
+
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: conversationSearchOpen }"
+          @click.stop="openConversationSearch"
+        >
+          <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
+            <template #title>搜索对话</template>
+            <Search class="icon" size="18" />
+          </a-tooltip>
+          <span class="nav-text">搜索对话</span>
+        </button>
+
+        <RouterLink
+          v-for="(item, index) in secondaryNavItems"
           :key="index"
           :to="item.path"
           v-show="!item.hidden"
@@ -329,6 +385,14 @@ provide('settingsModal', {
       <component :is="Component" v-else />
     </router-view>
 
+    <ConversationSearchModal
+      v-model:open="conversationSearchOpen"
+      :recent-threads="threads"
+      @select-thread="handleSearchSelectThread"
+      @create-thread="handleCreateConversationFromSearch"
+      @thread-found="handleSearchThreadFound"
+    />
+
     <!-- Debug Modal -->
     <a-modal
       v-model:open="showDebugModal"
@@ -356,7 +420,7 @@ provide('settingsModal', {
 @sidebar-width: 230px;
 @sidebar-collapsed-width: 56px;
 @sidebar-padding: 6px 8px;
-@sidebar-item-height: 36px;
+@sidebar-item-height: 32px;
 @sidebar-item-padding-x: 10px;
 @sidebar-icon-size: 16px;
 

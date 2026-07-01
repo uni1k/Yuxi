@@ -29,6 +29,15 @@ const searchQuery = ref('')
 const modelTestLoadingBySpec = ref({})
 const modelTestResultBySpec = ref({})
 
+const PROVIDER_TYPE_OPTIONS = [
+  { value: 'openai', label: 'OpenAI Completions API' },
+  { value: 'anthropic', label: 'Anthropic Messages API' }
+]
+
+const providerTypeLabelMap = Object.fromEntries(
+  PROVIDER_TYPE_OPTIONS.map((option) => [option.value, option.label])
+)
+
 // Provider form state
 const showProviderModal = ref(false)
 const editingProviderId = ref(null) // null = creating, string = editing
@@ -119,6 +128,8 @@ const getProviderIcon = (provider) => {
   const providerType = provider?.provider_type?.toLowerCase()
   return modelIcons[providerId] || modelIcons[providerType] || modelIcons.default
 }
+
+const getProviderTypeLabel = (providerType) => providerTypeLabelMap[providerType] || providerType || '-'
 
 const getIconUrl = (icon) => {
   if (!icon) return modelIcons.default
@@ -269,6 +280,7 @@ const loadProviders = async () => {
 
 function getProviderInfo(provider) {
   return [
+    { label: 'Provider Type', value: getProviderTypeLabel(provider.provider_type) },
     { label: 'Base URL', value: provider.base_url || '-' },
     { label: '能力', value: provider.capabilities?.join(', ') || 'chat' }
   ]
@@ -745,10 +757,13 @@ defineExpose({
           <label class="form-label">
             <span>Provider Type</span>
             <a-select v-model:value="providerForm.provider_type">
-              <a-select-option value="openai">openai</a-select-option>
-              <!-- <a-select-option value="anthropic">anthropic</a-select-option>
-              <a-select-option value="gemini">gemini</a-select-option>
-              <a-select-option value="openrouter">openrouter</a-select-option> -->
+              <a-select-option
+                v-for="option in PROVIDER_TYPE_OPTIONS"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </a-select-option>
             </a-select>
           </label>
         </div>

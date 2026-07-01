@@ -57,6 +57,7 @@
         v-if="parsedData.content"
         :key="message.id"
         :content="parsedData.content"
+        code-copy
         class="message-md"
       />
 
