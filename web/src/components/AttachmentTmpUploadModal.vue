@@ -228,7 +228,19 @@ const getErrorMessage = (error, fallback = '操作失败') => {
   return error?.response?.data?.detail || error?.message || fallback
 }
 
-const getDefaultParseMethod = () => null
+const isPdfParseMethods = (methods) =>
+  Array.isArray(methods) && methods.includes('disable')
+
+const getDefaultParseMethod = (methods, healthStatus = ocrHealthStatus.value) => {
+  if (!isPdfParseMethods(methods)) return null
+
+  const mineruStatus = healthStatus?.mineru_ocr?.status
+  if (mineruStatus === 'healthy' && methods.includes('mineru_ocr')) {
+    return 'mineru_ocr'
+  }
+
+  return null
+}
 
 const normalizeTmpUpload = (response) => ({
   tmpFileId: response.tmp_file_id,
@@ -240,13 +252,25 @@ const normalizeTmpUpload = (response) => ({
   minioUrl: response.minio_url,
   parseSupported: response.parse_supported,
   parseMethods: response.parse_methods || [],
-  selectedParseMethod: getDefaultParseMethod(response.parse_methods || [])
+  selectedParseMethod: getDefaultParseMethod(response.parse_methods || []),
+  selectedParseMethodAuto: true
 })
 
 const updateItem = (localId, patch) => {
   fileItems.value = fileItems.value.map((item) =>
     item.localId === localId ? { ...item, ...patch } : item
   )
+}
+
+const refreshAutoSelectedParseMethods = (healthStatus = ocrHealthStatus.value) => {
+  fileItems.value = fileItems.value.map((item) => {
+    if (!item.selectedParseMethodAuto) return item
+
+    return {
+      ...item,
+      selectedParseMethod: getDefaultParseMethod(item.parseMethods || [], healthStatus)
+    }
+  })
 }
 
 const checkOcrHealth = async () => {
@@ -259,6 +283,7 @@ const checkOcrHealth = async () => {
       ...defaultOcrHealthStatus(),
       ...(healthData?.services || {})
     }
+    refreshAutoSelectedParseMethods(ocrHealthStatus.value)
   } catch (error) {
     console.error('OCR健康检查失败:', error)
   } finally {
@@ -355,6 +380,7 @@ const handleParseMethodChange = (localId, selectedParseMethod) => {
   updateItem(localId, {
     ...clearParsedState,
     selectedParseMethod,
+    selectedParseMethodAuto: false,
     parseError: null,
     status: item?.status === 'parsed' ? 'uploaded' : item?.status
   })
