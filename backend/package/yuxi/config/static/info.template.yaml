@@ -4,8 +4,8 @@
 # 组织信息
 organization:
   name: "新疆维吾尔自治区住房和城乡建设厅"  # 完整组织名称
-  logo: "/favicon.svg"       # Logo文件路径（放在 web/public 目录下）
-  avatar: ""      # 头像文件路径（放在 web/public 目录下）
+  logo: "/zjtlogo.png"       # Logo文件路径（放在 web/public 目录下）
+  avatar: "/avatar.jpg"      # 头像文件路径（放在 web/public 目录下）
   login_bg: "/login-bg.jpg"  # 登录背景图片路径（放在 web/public 目录下）
 
 # 项目信息
