@@ -418,32 +418,6 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.github-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  text-decoration: none;
-  color: var(--gray-600);
-  border: 1px solid transparent;
-  transition:
-    color 0.2s ease,
-    background 0.2s ease,
-    border-color 0.2s ease;
-
-  &:hover {
-    color: var(--main-700);
-    background: var(--main-30);
-    border-color: var(--main-40);
-  }
-
-  svg {
-    fill: currentColor;
-  }
-}
-
 // Hero
 .hero-section {
   position: relative;
@@ -540,15 +514,14 @@ onUnmounted(() => {
 }
 
 .title {
-  font-size: clamp(2.6rem, 4.4vw, 4.2rem);
+  font-size: clamp(2.4rem, 4vw, 3.4rem);
   font-weight: 800;
   margin: 0;
-  background: linear-gradient(120deg, var(--main-900) 10%, var(--main-600) 60%, var(--main-500));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  letter-spacing: -0.02em;
-  line-height: 1.08;
+  color: var(--main-900);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  word-break: keep-all;
+  text-wrap: balance;
 }
 
 .subtitle {
@@ -973,13 +946,6 @@ onUnmounted(() => {
     }
   }
 
-  .github-link {
-    color: var(--gray-400);
-
-    &:hover {
-      color: var(--main-200);
-    }
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
