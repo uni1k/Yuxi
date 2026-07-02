@@ -461,58 +461,6 @@ onUnmounted(() => {
   animation-delay: 220ms;
 }
 
-.hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  align-self: flex-start;
-  padding: 0.4rem 0.9rem;
-  border-radius: 999px;
-  background: var(--main-0);
-  border: 1px solid var(--main-40);
-  color: var(--main-700);
-  font-size: 0.85rem;
-  letter-spacing: 0.02em;
-  font-weight: 600;
-  margin: 0;
-  box-shadow: 0 4px 14px -8px rgba(3, 80, 101, 0.4);
-}
-
-.badge-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--main-500);
-  box-shadow: 0 0 0 4px var(--main-50);
-  flex-shrink: 0;
-}
-
-.hero-badge-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.hero-badge-number {
-  color: var(--main-700);
-  font-weight: 700;
-  transition: color 0.2s ease;
-}
-
-.hero-badge-link:hover .hero-badge-number {
-  color: var(--main-800);
-}
-
-.hero-badge.typing::after {
-  content: '';
-  display: inline-block;
-  width: 1px;
-  height: 1em;
-  margin-left: 2px;
-  background: var(--main-600);
-  vertical-align: -0.1em;
-  animation: caretBlink 0.8s steps(1, end) infinite;
-}
-
 .title {
   font-size: clamp(2.4rem, 4vw, 3.4rem);
   font-weight: 800;
@@ -520,7 +468,6 @@ onUnmounted(() => {
   color: var(--main-900);
   letter-spacing: -0.01em;
   line-height: 1.25;
-  word-break: keep-all;
   text-wrap: balance;
 }
 
@@ -926,14 +873,6 @@ onUnmounted(() => {
     background: var(--main-5);
   }
 
-  .hero-badge-number {
-    color: var(--main-200);
-  }
-
-  .hero-badge-link:hover .hero-badge-number {
-    color: var(--main-100);
-  }
-
   .button-base.secondary {
     color: var(--main-200);
 
@@ -950,8 +889,7 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .reveal-up,
-  .orb,
-  .hero-badge.typing::after {
+  .orb {
     animation: none;
   }
 
