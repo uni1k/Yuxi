@@ -3,20 +3,20 @@
 
 # 组织信息
 organization:
-  name: "新疆维吾尔自治区住房和城乡建设厅"  # 完整组织名称
-  logo: "/gov-logo.png"       # Logo文件路径（放在 web/public 目录下，由部署方提供）
+  name: "政务服务单位"  # 完整组织名称
+  logo: "/favicon.svg"       # Logo文件路径（放在 web/public 目录下）
   avatar: "/avatar.jpg"      # 头像文件路径（放在 web/public 目录下）
-  login_bg: "/gov-login-bg.jpg"  # 登录背景图片路径（放在 web/public 目录下，由部署方提供）
+  login_bg: "/login-bg.jpg"  # 登录背景图片路径（放在 web/public 目录下）
 
 # 项目信息
 branding:
-  name: "新疆住建厅智能知识服务平台"
-  title: "新疆住建厅智能知识服务平台"     # 系统标题
+  name: "智能知识服务平台"
+  title: "智能知识服务平台"     # 系统标题
   subtitle: "政策智能问答 · 知识精准检索"          # 副标题（subtitles 为空时使用）
-  cli_name: "住建智脑"
+  cli_name: "知识服务助手"
   subtitles:
     - "政策智能问答 · 知识精准检索"
-    - "住建领域知识库与智能助手"
+    - "领域知识库与智能助手"
     - "提升政务处理效率"
 
 # 扩展链接
@@ -28,6 +28,6 @@ links:
 
 # 页脚信息
 footer:
-  copyright: "新疆维吾尔自治区住房和城乡建设厅"
+  copyright: "智能知识服务平台"
   user_agreement_url: "/protocols/user-agreement.template.html"
   privacy_policy_url: "/protocols/privacy-policy.template.html"
