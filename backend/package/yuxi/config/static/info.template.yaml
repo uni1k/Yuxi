@@ -3,31 +3,31 @@
 
 # 组织信息
 organization:
-  name: "Private Deployment"  # 完整组织名称
-  logo: "/favicon.svg"       # Logo文件路径（放在 web/public 目录下）
+  name: "新疆维吾尔自治区住房和城乡建设厅"  # 完整组织名称
+  logo: "/gov-logo.png"       # Logo文件路径（放在 web/public 目录下，由部署方提供）
   avatar: "/avatar.jpg"      # 头像文件路径（放在 web/public 目录下）
-  login_bg: "/login-bg.jpg"  # 登录背景图片路径（放在 web/public 目录下）
+  login_bg: "/gov-login-bg.jpg"  # 登录背景图片路径（放在 web/public 目录下，由部署方提供）
 
 # 项目信息
 branding:
-  name: "Knowledge Platform"
-  title: "Knowledge Platform Console"     # 系统标题
-  subtitle: "融合 RAG 与知识图谱的智能体平台"          # 副标题（subtitles 为空时使用）
-  cli_name: "Knowledge Platform CLI"
+  name: "新疆住建厅智能知识服务平台"
+  title: "新疆住建厅智能知识服务平台"     # 系统标题
+  subtitle: "政策智能问答 · 知识精准检索"          # 副标题（subtitles 为空时使用）
+  cli_name: "住建智脑"
   subtitles:
-    - "融合 RAG 与知识图谱的智能体平台"
-    - "领域知识库与智能问答系统"
-    - "让知识可检索、可推理、可交付"
+    - "政策智能问答 · 知识精准检索"
+    - "住建领域知识库与智能助手"
+    - "提升政务处理效率"
 
 # 扩展链接
 links:
-  docs_label: ""
+  docs_label: "使用指南"
   docs_url: ""
-  support_label: ""
+  support_label: "技术支持"
   support_url: ""
 
 # 页脚信息
 footer:
-  copyright: "© Private Deployment 2026"
+  copyright: "新疆维吾尔自治区住房和城乡建设厅"
   user_agreement_url: "/protocols/user-agreement.template.html"
   privacy_policy_url: "/protocols/privacy-policy.template.html"
