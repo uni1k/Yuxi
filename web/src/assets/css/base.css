@@ -1,28 +1,29 @@
 /* color palette from <https://github.com/vuejs/theme> */
 /* https://material-foundation.github.io/material-theme-builder/ */
 :root {
-  --main-1000: #01151f;
-  --main-900: #023944;
-  --main-800: #035065;
-  --main-700: #046a82;
-  --main-600: #24839a;
-  --main-500: #3996ae;
-  --main-400: #5faec2;
-  --main-300: #82c3d6;
-  --main-200: #a3d8e8;
-  --main-100: #c4eaf5;
-  --main-50: #e1f6fb;
-  --main-40: #eaf3f5;
-  --main-30: #f7fbfd;
-  --main-20: #f6f9fa;
+  /* 政务蓝主色阶：以 #1e4a8f 为核心，稳重、低饱和 */
+  --main-1000: #0a1a33;
+  --main-900: #0f2650;
+  --main-800: #14366d;
+  --main-700: #1e4a8f;
+  --main-600: #2d5da8;
+  --main-500: #4a7ac2;
+  --main-400: #6e96d0;
+  --main-300: #93b2de;
+  --main-200: #b8ceeb;
+  --main-100: #dde9f7;
+  --main-50: #eef4fb;
+  --main-40: #f3f7fc;
+  --main-30: #f7fafd;
+  --main-20: #f7f9fb;
   --main-10: #fafcfd;
-  --main-5: #fcfefe;
+  --main-5: #fcfdfe;
   --main-1: #fefefe;
   --main-0: #ffffff;
 
   /* 保留原有的 main 变量 */
   --main-color: var(--main-700);
-  --main-bright: #0188a6;
+  --main-bright: #4a7ac2;
 
   --gray-10000: #000000; /* 保持纯黑 */
   --gray-2000: #0c0d0d; /* 更精致的暗灰，用于极深背景 */
@@ -203,4 +204,30 @@
   :root {
     --page-padding: 14px;
   }
+}
+
+/* 政务化主题微调：收敛圆角、弱化阴影 */
+.ant-btn,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-card,
+.ant-modal-content,
+.ant-dropdown-menu,
+.ant-select-selector,
+.ant-menu,
+.ant-tabs-nav-wrap,
+.ant-pagination-item,
+.ant-tag {
+  border-radius: 4px !important;
+}
+
+.ant-btn.ant-btn-circle,
+.ant-btn.ant-btn-round {
+  border-radius: 50% !important;
+}
+
+.ant-card,
+.ant-modal-content,
+.ant-dropdown-menu {
+  box-shadow: 0 1px 4px var(--shadow-1) !important;
 }
