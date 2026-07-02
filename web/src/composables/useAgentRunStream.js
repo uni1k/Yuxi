@@ -30,7 +30,7 @@ const resolveChunkThreadId = ({ envelope, payload, chunk, fallbackThreadId }) =>
   )
 }
 
-const processRunSseResponse = async (response, onEvent) => {
+export const processRunSseResponse = async (response, onEvent) => {
   if (!response || !response.body) return
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -154,7 +154,7 @@ export function useAgentRunStream({
   const hasPendingInterruptForRun = (threadState, runId) => {
     const pendingInterrupt = threadState?.pendingInterrupt
     if (!pendingInterrupt?.questions?.length) return false
-    return !pendingInterrupt.parentRunId || pendingInterrupt.parentRunId === runId
+    return !pendingInterrupt.interruptedRunId || pendingInterrupt.interruptedRunId === runId
   }
 
   const hasPendingInterruptInThreads = (threadIds, runId) => {

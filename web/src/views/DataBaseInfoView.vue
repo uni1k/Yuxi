@@ -286,7 +286,11 @@
               </a-tooltip>
             </span>
           </template>
-          <a-select v-model:value="editForm.chunk_preset_id" :options="chunkPresetOptions" />
+          <a-select
+            v-model:value="editForm.chunk_preset_id"
+            :options="chunkPresetOptions"
+            :loading="chunkPresetLoading"
+          />
         </a-form-item>
 
         <template v-if="isDifyKb">
@@ -394,7 +398,8 @@ import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import { databaseApi } from '@/apis/knowledge_api'
 import { departmentApi } from '@/apis/department_api'
 import { authApi } from '@/apis/auth_api'
-import { CHUNK_PRESET_OPTIONS, getChunkPresetDescription } from '@/utils/chunk_presets'
+import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
+import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
 import { formatFileSize } from '@/utils/file_utils'
 import { getKbTypeIcon, getKbTypeLabel, kbUtils } from '@/utils/kb_utils'
 
@@ -403,6 +408,12 @@ const router = useRouter()
 const store = useDatabaseStore()
 const taskerStore = useTaskerStore()
 const userStore = useUserStore()
+const {
+  chunkPresetSelectOptions: chunkPresetOptions,
+  chunkPresetLoading,
+  loadChunkPresetOptions,
+  getChunkPresetDescription
+} = useChunkPresetOptions()
 
 const kbId = computed(() => store.kbId)
 const database = computed(() => store.database)
@@ -711,7 +722,7 @@ const editForm = reactive({
   name: '',
   description: '',
   auto_generate_questions: false,
-  chunk_preset_id: 'general',
+  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
   dify_api_url: '',
   dify_token: '',
   dify_dataset_id: '',
@@ -724,7 +735,6 @@ const rules = {
   name: [{ required: true, message: '请输入知识库名称' }]
 }
 
-const chunkPresetOptions = CHUNK_PRESET_OPTIONS.map(({ label, value }) => ({ label, value }))
 const editPresetDescription = computed(() => getChunkPresetDescription(editForm.chunk_preset_id))
 const fileList = computed(() => {
   return (store.documentFiles || []).map((f) => f.filename).filter(Boolean)
@@ -793,7 +803,8 @@ const showEditModal = () => {
   editForm.description = database.value.description || ''
   editForm.auto_generate_questions =
     database.value.additional_params?.auto_generate_questions || false
-  editForm.chunk_preset_id = database.value.additional_params?.chunk_preset_id || 'general'
+  editForm.chunk_preset_id =
+    database.value.additional_params?.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
   editForm.dify_api_url = database.value.additional_params?.dify_api_url || ''
   editForm.dify_token = database.value.additional_params?.dify_token || ''
   editForm.dify_dataset_id = database.value.additional_params?.dify_dataset_id || ''
@@ -861,7 +872,7 @@ const handleEditSubmit = () => {
       } else {
         updateData.additional_params = {
           auto_generate_questions: editForm.auto_generate_questions,
-          chunk_preset_id: editForm.chunk_preset_id || 'general'
+          chunk_preset_id: editForm.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
         }
       }
 
@@ -878,6 +889,7 @@ const deleteDatabase = () => {
 }
 
 onMounted(() => {
+  loadChunkPresetOptions()
   loadDepartments()
   loadUsers()
 })

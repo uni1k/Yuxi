@@ -12,9 +12,9 @@ from yuxi.agents.backends.sandbox import (
 )
 from yuxi.agents.buildin import agent_manager
 from yuxi.config import config as app_config
-from yuxi.knowledge.parser import Parser
+from yuxi.knowledge.parser import DocumentProcessorFactory, Parser
 from yuxi.repositories.agent_repository import AgentRepository
-from yuxi.repositories.conversation_repository import ConversationRepository
+from yuxi.repositories.conversation_repository import ConversationRepository, INVOCATION_CONVERSATION_SOURCES
 from yuxi.services.mention_search_service import invalidate_mention_cache
 from yuxi.storage.minio import StorageError, get_minio_client
 from yuxi.storage.postgres.models_business import User
@@ -29,13 +29,7 @@ MAX_ATTACHMENT_MARKDOWN_CHARS = 32_000  # TODO: 转 MARKDOWN的时候，不应�
 TMP_ATTACHMENT_PREFIX = "tmp/chat_attachments"
 TMP_ATTACHMENT_PARSE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
 TMP_ATTACHMENT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
-TMP_ATTACHMENT_OCR_METHODS = (
-    "rapid_ocr",
-    "mineru_ocr",
-    "mineru_official",
-    "pp_structure_v3_ocr",
-    "deepseek_ocr",
-)
+TMP_ATTACHMENT_OCR_METHODS = tuple(DocumentProcessorFactory.get_available_processors())
 TMP_ATTACHMENT_PARSE_METHODS = ("disable", *TMP_ATTACHMENT_OCR_METHODS)
 
 
@@ -406,7 +400,7 @@ def _materialize_tmp_attachment_files(
 
 async def create_thread_view(
     *,
-    agent_id: str,
+    agent_slug: str,
     title: str | None,
     metadata: dict | None,
     db: AsyncSession,
@@ -418,7 +412,7 @@ async def create_thread_view(
         raise HTTPException(status_code=404, detail="用户不存在")
 
     agent_repo = AgentRepository(db)
-    agent_item = await agent_repo.get_visible_by_slug(slug=agent_id, user=current_user)
+    agent_item = await agent_repo.get_visible_by_slug(slug=agent_slug, user=current_user)
     if not agent_item:
         raise HTTPException(status_code=404, detail="智能体不存在")
 
@@ -447,7 +441,7 @@ async def create_thread_view(
 
 async def list_threads_view(
     *,
-    agent_id: str | None,
+    agent_slug: str | None,
     db: AsyncSession,
     current_uid: str,
     limit: int | None = None,
@@ -456,10 +450,11 @@ async def list_threads_view(
     conv_repo = ConversationRepository(db)
     conversations = await conv_repo.list_conversations(
         uid=str(current_uid),
-        agent_id=agent_id,
+        agent_id=agent_slug,
         status="active",
         limit=limit,
         offset=offset,
+        exclude_sources=INVOCATION_CONVERSATION_SOURCES,
     )
 
     return [
@@ -497,6 +492,7 @@ async def search_threads_view(
         query=normalized_query,
         limit=limit,
         offset=offset,
+        exclude_sources=INVOCATION_CONVERSATION_SOURCES,
     )
 
     items = []
@@ -952,6 +948,9 @@ async def get_thread_history_view(
             "type": role_type_map.get(msg.role, msg.role),
             "content": msg.content,
             "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            "run_id": msg.run_id,
+            "request_id": msg.request_id,
+            "delivery_status": msg.delivery_status,
             "error_type": extra_metadata.get("error_type"),
             "error_message": extra_metadata.get("error_message"),
             "extra_metadata": extra_metadata,

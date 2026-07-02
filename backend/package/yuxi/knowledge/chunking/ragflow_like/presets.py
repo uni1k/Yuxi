@@ -5,30 +5,36 @@ from typing import Any
 
 from yuxi.utils import logger
 
-CHUNK_PRESET_GENERAL = "general"
-CHUNK_PRESET_QA = "qa"
-CHUNK_PRESET_BOOK = "book"
-CHUNK_PRESET_LAWS = "laws"
-CHUNK_PRESET_SEMANTIC = "semantic"
-CHUNK_PRESET_SEPARATOR = "separator"
+DEFAULT_CHUNK_PRESET_ID = "general"
 
-CHUNK_PRESET_IDS = {
-    CHUNK_PRESET_GENERAL,
-    CHUNK_PRESET_QA,
-    CHUNK_PRESET_BOOK,
-    CHUNK_PRESET_LAWS,
-    CHUNK_PRESET_SEMANTIC,
-    CHUNK_PRESET_SEPARATOR,
+CHUNK_PRESETS: dict[str, dict[str, str]] = {
+    "general": {
+        "label": "General",
+        "description": "通用分块：按分隔符和长度切分，适合大多数普通文档。",
+    },
+    "qa": {
+        "label": "QA",
+        "description": "问答分块：优先抽取问题-回答结构，适合 FAQ、题库、问答手册。",
+    },
+    "book": {
+        "label": "Book",
+        "description": "书籍分块：强化章节标题识别并做层级合并，适合教材、手册、长章节文档。",
+    },
+    "laws": {
+        "label": "Laws",
+        "description": "法规分块：按法条层级组织与合并，适合法律法规、制度规范类文本。",
+    },
+    "semantic": {
+        "label": "Semantic",
+        "description": "语义分块：利用嵌入和聚类算法进行语义切分，并自动增强标题上下文。",
+    },
+    "separator": {
+        "label": "Separator",
+        "description": "严格分隔：命中分隔符即切分，仅超长片段内部继续按长度切分。",
+    },
 }
 
-CHUNK_PRESET_DESCRIPTIONS: dict[str, str] = {
-    CHUNK_PRESET_GENERAL: "通用分块：按分隔符和长度切分，适合大多数普通文档。",
-    CHUNK_PRESET_QA: "问答分块：优先抽取问题-回答结构，适合 FAQ、题库、问答手册。",
-    CHUNK_PRESET_BOOK: "书籍分块：强化章节标题识别并做层级合并，适合教材、手册、长章节文档。",
-    CHUNK_PRESET_LAWS: "法规分块：按法条层级组织与合并，适合法律法规、制度规范类文本。",
-    CHUNK_PRESET_SEMANTIC: "语义分块：利用嵌入和聚类算法进行语义切分，并自动增强标题上下文。",
-    CHUNK_PRESET_SEPARATOR: "严格分隔：命中分隔符即切分，仅超长片段内部继续按长度切分。",
-}
+CHUNK_PRESET_IDS = set(CHUNK_PRESETS)
 
 CHUNK_ENGINE_VERSION = "ragflow_like_v1"
 GENERAL_INTERNAL_PARSER_ID = "naive"
@@ -46,22 +52,22 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 def normalize_chunk_preset_id(value: str | None) -> str:
     if not value:
-        return CHUNK_PRESET_GENERAL
+        return DEFAULT_CHUNK_PRESET_ID
 
     normalized = str(value).strip().lower()
     if normalized == GENERAL_INTERNAL_PARSER_ID:
-        return CHUNK_PRESET_GENERAL
+        return DEFAULT_CHUNK_PRESET_ID
 
     if normalized in CHUNK_PRESET_IDS:
         return normalized
 
     logger.warning(f"Unknown chunk preset id '{value}', fallback to general")
-    return CHUNK_PRESET_GENERAL
+    return DEFAULT_CHUNK_PRESET_ID
 
 
 def map_to_internal_parser_id(preset_id: str) -> str:
     normalized = normalize_chunk_preset_id(preset_id)
-    if normalized == CHUNK_PRESET_GENERAL:
+    if normalized == DEFAULT_CHUNK_PRESET_ID:
         return GENERAL_INTERNAL_PARSER_ID
     return normalized
 
@@ -118,34 +124,6 @@ def resolve_chunk_processing_params(
 
 def get_chunk_preset_options() -> list[dict[str, str]]:
     return [
-        {
-            "value": CHUNK_PRESET_GENERAL,
-            "label": "General",
-            "description": CHUNK_PRESET_DESCRIPTIONS[CHUNK_PRESET_GENERAL],
-        },
-        {
-            "value": CHUNK_PRESET_QA,
-            "label": "QA",
-            "description": CHUNK_PRESET_DESCRIPTIONS[CHUNK_PRESET_QA],
-        },
-        {
-            "value": CHUNK_PRESET_BOOK,
-            "label": "Book",
-            "description": CHUNK_PRESET_DESCRIPTIONS[CHUNK_PRESET_BOOK],
-        },
-        {
-            "value": CHUNK_PRESET_LAWS,
-            "label": "Laws",
-            "description": CHUNK_PRESET_DESCRIPTIONS[CHUNK_PRESET_LAWS],
-        },
-        {
-            "value": CHUNK_PRESET_SEMANTIC,
-            "label": "Semantic",
-            "description": CHUNK_PRESET_DESCRIPTIONS[CHUNK_PRESET_SEMANTIC],
-        },
-        {
-            "value": CHUNK_PRESET_SEPARATOR,
-            "label": "Separator",
-            "description": CHUNK_PRESET_DESCRIPTIONS[CHUNK_PRESET_SEPARATOR],
-        },
+        {"value": preset_id, "label": preset["label"], "description": preset["description"]}
+        for preset_id, preset in CHUNK_PRESETS.items()
     ]

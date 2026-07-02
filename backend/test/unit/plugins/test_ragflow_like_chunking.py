@@ -11,6 +11,7 @@ from yuxi.knowledge.chunking.ragflow_like.utils.semantic_utils import split_sent
 from yuxi.knowledge.chunking.ragflow_like.presets import (
     CHUNK_ENGINE_VERSION,
     CHUNK_PRESET_IDS,
+    CHUNK_PRESETS,
     get_chunk_preset_options,
     get_default_chunk_parser_config,
     map_to_internal_parser_id,
@@ -178,6 +179,7 @@ def test_mid_sentence_bullet_marker_should_not_be_treated_as_heading() -> None:
 
 def test_chunk_preset_options_include_description() -> None:
     options = get_chunk_preset_options()
+    assert [option["value"] for option in options] == list(CHUNK_PRESETS)
     assert {option["value"] for option in options} == CHUNK_PRESET_IDS
     assert all(isinstance(option.get("description"), str) and option["description"] for option in options)
 

@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from yuxi.knowledge.chunking.ragflow_like.presets import CHUNK_PRESET_IDS
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -165,6 +166,18 @@ async def test_create_database_with_chunk_preset(test_client, admin_headers):
     assert delete_response.status_code == 200, delete_response.text
 
 
+async def test_get_chunk_presets_returns_configured_options(test_client, admin_headers):
+    response = await test_client.get("/api/knowledge/chunk-presets", headers=admin_headers)
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+    options = payload["chunk_presets"]
+    assert payload["message"] == "success"
+    assert {option["value"] for option in options} == CHUNK_PRESET_IDS
+    assert all(set(option) == {"value", "label", "description"} for option in options)
+    assert all(option["label"] and option["description"] for option in options)
+
+
 async def test_update_database_additional_params_merge_keeps_chunk_preset(
     test_client, admin_headers, knowledge_database
 ):
@@ -212,6 +225,9 @@ async def test_knowledge_routes_enforce_permissions(test_client, standard_user, 
 
     forbidden_list = await test_client.get("/api/knowledge/databases", headers=standard_user["headers"])
     _assert_forbidden_response(forbidden_list)
+
+    forbidden_chunk_presets = await test_client.get("/api/knowledge/chunk-presets", headers=standard_user["headers"])
+    _assert_forbidden_response(forbidden_chunk_presets)
 
     forbidden_get = await test_client.get(f"/api/knowledge/databases/{kb_id}", headers=standard_user["headers"])
     _assert_forbidden_response(forbidden_get)

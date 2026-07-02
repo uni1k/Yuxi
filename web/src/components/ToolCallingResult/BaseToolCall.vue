@@ -59,7 +59,7 @@
     </div>
 
     <!-- Content Area -->
-    <div class="tool-content" v-show="isExpanded">
+    <div v-if="isExpanded" class="tool-content">
       <!-- Params Slot -->
       <div class="tool-params" v-if="hasParams && !hideParams">
         <slot name="params" :tool-call="toolCall" :args="formattedArgs">
@@ -118,7 +118,7 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  // 即使没有 tool_call_result 也展示结果区（配合外部提供的结果内容，如 task 的 result_preview）
+  // 即使没有 tool_call_result 也展示结果区（配合外部提供的结果内容）
   forceShowResult: {
     type: Boolean,
     default: false

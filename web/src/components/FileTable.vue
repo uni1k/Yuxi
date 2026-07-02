@@ -996,7 +996,7 @@ const formatFileTableTime = (value) => {
 
 // 导入工具函数
 import { parseToShanghai } from '@/utils/time'
-import { buildChunkParamsPayload, isPlainObject } from '@/utils/chunk_presets'
+import { buildChunkParamsPayload, isPlainObject } from '@/utils/chunkUtils'
 import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
 import FileBrowserTable from '@/components/common/FileBrowserTable.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'

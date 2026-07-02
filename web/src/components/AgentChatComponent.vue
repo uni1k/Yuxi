@@ -464,7 +464,7 @@
                   <div class="state-list">
                     <div
                       v-for="(run, index) in displaySubagentRuns"
-                      :key="run.id || `${run.subagent_type || 'subagent'}-${index}`"
+                      :key="run.id || `${run.subagent_slug || 'subagent'}-${index}`"
                       class="state-list-item"
                       :class="{ 'is-clickable': run.child_thread_id }"
                       @click="run.child_thread_id && openSubagentThread(run)"
@@ -474,7 +474,7 @@
                         :src="getSubagentIconSrc(run)"
                         :default-src="getSubagentDefaultIconSrc(run)"
                         :name="getSubagentRunName(run)"
-                        :seed="run.subagent_type || getSubagentRunName(run)"
+                        :seed="run.subagent_slug || getSubagentRunName(run)"
                         kind="agent"
                         :size="28"
                         shape="rounded"
@@ -548,9 +548,13 @@
     <SubagentThreadModal
       v-model:open="subagentThreadModal.open"
       :child-thread-id="subagentThreadModal.childThreadId"
+      :run-id="activeSubagentThreadRunId"
+      :run-status="activeSubagentThreadRunStatus"
       :subagent-name="activeSubagentThreadName"
       :subagent-avatar="activeSubagentThreadAvatar"
       :subagent-default-avatar="activeSubagentThreadDefaultAvatar"
+      :ongoing-messages="activeSubagentThreadOngoingMessages"
+      :is-streaming="activeSubagentThreadIsStreaming"
     />
   </div>
 </template>
@@ -820,16 +824,16 @@ const getArtifactMetaLabel = (path) => {
 }
 
 const getSubagentRunName = (run) => {
-  const subagentType = run?.subagent_type ? String(run.subagent_type) : ''
+  const subagentSlug = run?.subagent_slug ? String(run.subagent_slug) : ''
   return (
-    run?.subagent_name || currentSubagentOptionBySlug.value.get(subagentType)?.name || '子智能体'
+    run?.subagent_name || currentSubagentOptionBySlug.value.get(subagentSlug)?.name || '子智能体'
   )
 }
 
 const getSubagentAgent = (run) => {
-  const subagentId = run?.subagent_type
-  if (!subagentId) return null
-  return agents.value.find((agent) => agent.id === subagentId || agent.slug === subagentId) || null
+  const subagentSlug = run?.subagent_slug
+  if (!subagentSlug) return null
+  return agents.value.find((agent) => agent.slug === subagentSlug) || null
 }
 
 const getSubagentIconSrc = (run) => {
@@ -838,7 +842,7 @@ const getSubagentIconSrc = (run) => {
 }
 
 const getSubagentDefaultIconSrc = (run) =>
-  run?.subagent_type ? generatePixelAvatar(run.subagent_type) : ''
+  run?.subagent_slug ? generatePixelAvatar(run.subagent_slug) : ''
 
 const getSubagentRunMeta = (run) => {
   const artifacts = Array.isArray(run?.artifacts) ? run.artifacts.length : 0
@@ -1023,14 +1027,23 @@ const tokenUsageSegments = computed(() => {
     ? Math.max(toFiniteNumber(usage.summary_message_tokens) || 0, 0)
     : 0
   const llmMessageTokens = Math.max(toFiniteNumber(usage.llm_messages_tokens) || 0, 0)
+  const hasSplitMessageTokens =
+    toFiniteNumber(usage.llm_content_message_tokens) !== null ||
+    toFiniteNumber(usage.llm_tool_message_tokens) !== null
+  const contentMessageTokens = hasSplitMessageTokens
+    ? Math.max(toFiniteNumber(usage.llm_content_message_tokens) || 0, 0)
+    : Math.max(llmMessageTokens - summaryTokens, 0)
+  const toolMessageTokens = Math.max(toFiniteNumber(usage.llm_tool_message_tokens) || 0, 0)
   const stateMessageTokensBeforeCall = Math.max(
     toFiniteNumber(usage.state_messages_tokens_before_call ?? usage.state_messages_tokens) || 0,
     0
   )
-  const messageTokens = Math.max(llmMessageTokens - summaryTokens, 0)
   const cutMessageTokens = Math.max(stateMessageTokensBeforeCall - llmMessageTokens, 0)
   const llmMessageCount = Math.max(toFiniteNumber(usage.llm_message_count) || 0, 0)
-  const displayMessageCount = Math.max(llmMessageCount - (usage.summary_active ? 1 : 0), 0)
+  const contentMessageCount = hasSplitMessageTokens
+    ? Math.max(toFiniteNumber(usage.llm_content_message_count) || 0, 0)
+    : Math.max(llmMessageCount - (usage.summary_active ? 1 : 0), 0)
+  const toolMessageCount = Math.max(toFiniteNumber(usage.llm_tool_message_count) || 0, 0)
   const stateMessageCountBeforeCall = Math.max(
     toFiniteNumber(usage.state_message_count_before_call ?? usage.state_message_count) || 0,
     0
@@ -1049,10 +1062,17 @@ const tokenUsageSegments = computed(() => {
     },
     {
       key: 'messages',
-      label: '消息',
-      value: messageTokens,
-      messageCount: displayMessageCount,
+      label: '内容消息',
+      value: contentMessageTokens,
+      messageCount: contentMessageCount,
       tone: 'is-messages'
+    },
+    {
+      key: 'toolMessages',
+      label: '工具消息',
+      value: toolMessageTokens,
+      messageCount: toolMessageCount,
+      tone: 'is-tool-messages'
     },
     {
       key: 'summary',
@@ -1063,13 +1083,13 @@ const tokenUsageSegments = computed(() => {
     },
     {
       key: 'system',
-      label: '系统',
+      label: '系统消息',
       value: systemTokens,
       tone: 'is-system'
     },
     {
       key: 'tools',
-      label: `工具 (${usage.tool_count || 0})`,
+      label: `工具定义 (${usage.tool_count || 0})`,
       value: toolsTokens,
       tone: 'is-tools'
     }
@@ -1196,6 +1216,7 @@ const currentSubagentRunById = computed(() => {
   const runById = new Map()
   currentSubagentRuns.value.forEach((run) => {
     if (run?.id) runById.set(String(run.id), run)
+    if (run?.run_id) runById.set(String(run.run_id), run)
   })
   return runById
 })
@@ -1217,6 +1238,8 @@ const currentSubagentOptionBySlug = computed(() => {
 const subagentThreadModal = reactive({
   open: false,
   childThreadId: '',
+  runId: '',
+  runStatus: '',
   subagentName: '',
   subagentAvatar: '',
   subagentDefaultAvatar: ''
@@ -1224,6 +1247,8 @@ const subagentThreadModal = reactive({
 const openSubagentThread = (run) => {
   if (!run?.child_thread_id) return
   subagentThreadModal.childThreadId = String(run.child_thread_id)
+  subagentThreadModal.runId = run.run_id ? String(run.run_id) : ''
+  subagentThreadModal.runStatus = run.status ? String(run.status) : ''
   subagentThreadModal.subagentName = getSubagentRunName(run)
   subagentThreadModal.subagentAvatar = getSubagentIconSrc(run)
   subagentThreadModal.subagentDefaultAvatar = getSubagentDefaultIconSrc(run)
@@ -1390,7 +1415,7 @@ const ongoingTaskCalls = computed(() => {
         id,
         messageIndex,
         hasResult: Boolean(toolCall.tool_call_result || toolCall.result),
-        subagentType: args.subagent_type || '',
+        subagentSlug: args.subagent_slug || '',
         description: args.description || '',
         childThreadId: args.thread_id ? String(args.thread_id) : getSubagentThreadIdByToolCall(id)
       })
@@ -1419,13 +1444,13 @@ const runningSubagentRunsFromStream = computed(() => {
   return ongoingTaskCalls.value
     .filter((call) => activeIds.has(call.id))
     .map((call) => {
-      const option = call.subagentType
-        ? currentSubagentOptionBySlug.value.get(call.subagentType)
+      const option = call.subagentSlug
+        ? currentSubagentOptionBySlug.value.get(call.subagentSlug)
         : null
       return {
         id: call.id,
-        subagent_type: call.subagentType,
-        subagent_name: option?.name || call.subagentType || '子智能体',
+        subagent_slug: call.subagentSlug,
+        subagent_name: option?.name || call.subagentSlug || '子智能体',
         description: call.description,
         child_thread_id: call.childThreadId || '',
         status: 'running'
@@ -1433,31 +1458,65 @@ const runningSubagentRunsFromStream = computed(() => {
     })
 })
 
-// 与后端 merge_subagent_runs 一致：按 child_thread_id / id 合并，运行中条目覆盖同一线程的完成态，
-// 保证每个子线程恒为一行并反映当前状态（含续跑/steer）。
+// task 工具调用入参里携带的任务描述（tool_call_id -> description），覆盖历史与进行中消息。
+// 后端 subagent_runs 不再冗余存储 description，面板据此为已完成的 run 回填展示文案。
+const taskDescriptionByToolCallId = computed(() => {
+  const map = new Map()
+  const collect = (messages) => {
+    if (!Array.isArray(messages)) return
+    messages.forEach((message) => {
+      if (message?.type !== 'ai' || !Array.isArray(message.tool_calls)) return
+      message.tool_calls.forEach((toolCall) => {
+        const name = toolCall?.name || toolCall?.function?.name
+        if (name !== 'task') return
+        const id = toolCall?.id ? String(toolCall.id) : ''
+        if (!id || map.has(id)) return
+        const desc = String(parseToolCallArgs(toolCall).description || '').trim()
+        if (desc) map.set(id, desc)
+      })
+    })
+  }
+  collect(historyConversations.value)
+  collect(onGoingConvMessages.value)
+  return map
+})
+
+// 后端按 run_id 合并持久化状态；流式期的临时 task 条目还没有 run_id，仅用工具调用 id 合并占位。
 const displaySubagentRuns = computed(() => {
-  const merged = currentSubagentRuns.value.map((run) => ({ ...run }))
-  const childIndex = new Map()
-  const idIndex = new Map()
+  const descByToolCall = taskDescriptionByToolCallId.value
+  const merged = currentSubagentRuns.value.map((run) => {
+    const copy = { ...run }
+    // 持久化条目不带 description，按 tool_call_id（即 run.id）从 task 调用入参回填。
+    if (!copy.description && copy.id) {
+      const desc = descByToolCall.get(String(copy.id))
+      if (desc) copy.description = desc
+    }
+    return copy
+  })
+  const runIdIndex = new Map()
+  const transientIdIndex = new Map()
   merged.forEach((run, index) => {
-    if (run.child_thread_id) childIndex.set(String(run.child_thread_id), index)
-    if (run.id) idIndex.set(String(run.id), index)
+    if (run.run_id) runIdIndex.set(String(run.run_id), index)
+    // 持久化条目（同时带 run_id 与 id）也按工具调用 id 建索引，
+    // 否则流式占位条目找不到它，会在面板里重复成额外一行。
+    if (run.id) transientIdIndex.set(String(run.id), index)
   })
   runningSubagentRunsFromStream.value.forEach((run) => {
     let position
-    if (run.child_thread_id && childIndex.has(run.child_thread_id)) {
-      position = childIndex.get(run.child_thread_id)
-    } else if (idIndex.has(run.id)) {
-      position = idIndex.get(run.id)
+    if (run.run_id && runIdIndex.has(String(run.run_id))) {
+      position = runIdIndex.get(String(run.run_id))
+    } else if (!run.run_id && run.id && transientIdIndex.has(String(run.id))) {
+      position = transientIdIndex.get(String(run.id))
     }
     if (position === undefined) {
       position = merged.length
       merged.push(run)
-    } else {
+    } else if (!merged[position].run_id) {
+      // 已落库（有 run_id）的条目以后端为准，不被流式运行态覆盖；仅覆盖纯占位条目
       merged[position] = { ...merged[position], ...run }
     }
-    if (run.child_thread_id) childIndex.set(run.child_thread_id, position)
-    idIndex.set(run.id, position)
+    if (run.run_id) runIdIndex.set(String(run.run_id), position)
+    else if (run.id) transientIdIndex.set(String(run.id), position)
   })
   return merged
 })
@@ -1475,6 +1534,16 @@ const activeSubagentThreadName = computed(() =>
     ? getSubagentRunName(activeSubagentThreadRun.value)
     : subagentThreadModal.subagentName
 )
+const activeSubagentThreadRunId = computed(() =>
+  activeSubagentThreadRun.value?.run_id
+    ? String(activeSubagentThreadRun.value.run_id)
+    : subagentThreadModal.runId
+)
+const activeSubagentThreadRunStatus = computed(() =>
+  activeSubagentThreadRun.value?.status
+    ? String(activeSubagentThreadRun.value.status)
+    : subagentThreadModal.runStatus
+)
 const activeSubagentThreadAvatar = computed(() =>
   activeSubagentThreadRun.value
     ? getSubagentIconSrc(activeSubagentThreadRun.value) || subagentThreadModal.subagentAvatar
@@ -1485,6 +1554,15 @@ const activeSubagentThreadDefaultAvatar = computed(() =>
     ? getSubagentDefaultIconSrc(activeSubagentThreadRun.value) ||
       subagentThreadModal.subagentDefaultAvatar
     : subagentThreadModal.subagentDefaultAvatar
+)
+const activeSubagentThreadOngoingMessages = computed(() => {
+  if (!subagentThreadModal.childThreadId) return []
+  return getThreadOngoingMessages(subagentThreadModal.childThreadId)
+})
+const activeSubagentThreadIsStreaming = computed(
+  () =>
+    activeSubagentThreadOngoingMessages.value.length > 0 ||
+    activeSubagentThreadRun.value?.status === 'running'
 )
 
 // 首次运行的子智能体：前端按后端同样的哈希推算 child_thread_id，缓存到映射里供面板/轨迹定位。
@@ -1502,8 +1580,8 @@ watch(
         const id = toolCall?.id ? String(toolCall.id) : ''
         if (!id || chatState.subagentThreadByToolCall[id]) return
         const args = parseToolCallArgs(toolCall)
-        if (args.thread_id || !args.subagent_type) return
-        makeChildThreadId(parentThreadId, String(args.subagent_type), id).then((childThreadId) => {
+        if (args.thread_id || !args.subagent_slug) return
+        makeChildThreadId(parentThreadId, String(args.subagent_slug), id).then((childThreadId) => {
           recordSubagentThread(id, childThreadId)
         })
       })
@@ -1520,9 +1598,18 @@ function getMessageRequestId(message) {
   const metadataRequestId = message?.extra_metadata?.request_id
   if (typeof metadataRequestId === 'string' && metadataRequestId.trim())
     return metadataRequestId.trim()
+  if (typeof message?.request_id === 'string' && message.request_id.trim())
+    return message.request_id.trim()
   if (message?.type === 'human' && typeof message.id === 'string' && message.id.trim()) {
     return message.id.trim()
   }
+  return null
+}
+
+function getMessageRunId(message) {
+  const metadataRunId = message?.extra_metadata?.run_id
+  if (typeof metadataRunId === 'string' && metadataRunId.trim()) return metadataRunId.trim()
+  if (typeof message?.run_id === 'string' && message.run_id.trim()) return message.run_id.trim()
   return null
 }
 
@@ -1573,20 +1660,69 @@ function mergeOngoingUserMessageIntoHistory(historyConvs, ongoingMessages) {
   return { historyConvs: patchedHistoryConvs, ongoingMessages: ongoingMessages.slice(1) }
 }
 
+function mergeActiveRunOngoingIntoHistory(historyConvs, ongoingMessages, activeRunId) {
+  if (!activeRunId || !Array.isArray(historyConvs) || !Array.isArray(ongoingMessages)) {
+    return { historyConvs, ongoingMessages }
+  }
+  if (!ongoingMessages.length) return { historyConvs, ongoingMessages }
+
+  const filteredHistoryConvs = historyConvs
+    .map((conv) => ({
+      ...conv,
+      messages: (conv.messages || []).filter(
+        (message) => !(message?.type === 'ai' && getMessageRunId(message) === activeRunId)
+      )
+    }))
+    .filter((conv) => conv.messages.length > 0)
+
+  const firstOngoingMessage = ongoingMessages[0]
+  if (firstOngoingMessage?.type === 'human' || filteredHistoryConvs.length === 0) {
+    return { historyConvs: filteredHistoryConvs, ongoingMessages }
+  }
+
+  const lastHistoryConv = filteredHistoryConvs[filteredHistoryConvs.length - 1]
+  const lastMessages = Array.isArray(lastHistoryConv.messages) ? lastHistoryConv.messages : []
+  const lastHuman = lastMessages.find((message) => message?.type === 'human')
+  if (!lastHuman) return { historyConvs: filteredHistoryConvs, ongoingMessages }
+
+  const historyRequestId = getMessageRequestId(lastHuman)
+  const ongoingRequestId = getMessageRequestId(firstOngoingMessage)
+  const sameActiveRun =
+    getMessageRunId(lastHuman) === activeRunId ||
+    (Boolean(historyRequestId) &&
+      Boolean(ongoingRequestId) &&
+      ongoingRequestId === historyRequestId)
+  if (!sameActiveRun) return { historyConvs: filteredHistoryConvs, ongoingMessages }
+
+  const patchedHistoryConvs = [...filteredHistoryConvs]
+  patchedHistoryConvs[patchedHistoryConvs.length - 1] = {
+    ...lastHistoryConv,
+    messages: [...lastMessages, ...ongoingMessages],
+    status: 'streaming'
+  }
+  return { historyConvs: patchedHistoryConvs, ongoingMessages: [] }
+}
+
 const conversations = computed(() => {
   const historyConvs = historyConversations.value
   const { historyConvs: mergedHistoryConvs, ongoingMessages: mergedOngoingMessages } =
     mergeOngoingUserMessageIntoHistory(historyConvs, onGoingConvMessages.value)
+  const { historyConvs: activeRunHistoryConvs, ongoingMessages: activeRunOngoingMessages } =
+    mergeActiveRunOngoingIntoHistory(
+      mergedHistoryConvs,
+      mergedOngoingMessages,
+      currentThreadState.value?.activeRunId || null
+    )
 
   // 如果有进行中的消息且线程状态显示正在流式处理，添加进行中的对话
-  if (mergedOngoingMessages.length > 0) {
+  if (activeRunOngoingMessages.length > 0) {
     const onGoingConv = {
-      messages: mergedOngoingMessages,
+      messages: activeRunOngoingMessages,
       status: 'streaming'
     }
-    return [...mergedHistoryConvs, onGoingConv]
+    return [...activeRunHistoryConvs, onGoingConv]
   }
-  return mergedHistoryConvs
+  return activeRunHistoryConvs
 })
 
 const conversationRows = computed(() => {
@@ -2243,12 +2379,13 @@ const selectChat = async (chatId) => {
   }
 
   await nextTick()
-  scrollController.scrollToBottomStaticForce()
+  await scrollController.scrollToBottomStaticForce()
   // await fetchAgentState(targetAgentId, chatId)
   await handleAgentStateRefresh(chatId)
   syncThreadConfigSnapshot(chatId, { overwrite: false })
   await resumeActiveRunForThread(chatId)
   restorePendingInterruptForThread(chatId)
+  await scrollController.scrollToBottomStaticForce()
 }
 
 const selectThreadFromRoute = async (threadId) => {
@@ -2375,7 +2512,7 @@ const handleSendMessage = async ({ image } = {}) => {
   try {
     const runResp = await agentApi.createAgentRun({
       query: text,
-      agent_id: currentAgentId.value,
+      agent_slug: currentAgentId.value,
       thread_id: threadId,
       meta: {
         request_id: requestId,
@@ -2427,7 +2564,7 @@ const handleSendOrStop = async (payload) => {
 // ==================== 人工审批处理 ====================
 const handleApprovalWithStream = async (answer) => {
   const threadId = approvalState.threadId
-  const parentRunId = approvalState.parentRunId
+  const interruptedRunId = approvalState.interruptedRunId
   if (!threadId) {
     message.error('无效的提问请求')
     approvalState.showModal = false
@@ -2441,7 +2578,7 @@ const handleApprovalWithStream = async (answer) => {
     return
   }
 
-  if (!parentRunId) {
+  if (!interruptedRunId) {
     message.error('无法找到需要恢复的运行任务')
     approvalState.showModal = false
     return
@@ -2454,15 +2591,14 @@ const handleApprovalWithStream = async (answer) => {
     threadState.pendingInterrupt = null
     threadState.isStreaming = true
     resetOnGoingConv(threadId)
-    const resumeRequestId = createClientRequestId()
+    const requestId = createClientRequestId()
     const runResp = await agentApi.createAgentRun({
       query: null,
-      agent_id: currentAgentId.value,
+      agent_slug: currentAgentId.value,
       thread_id: threadId,
-      meta: { request_id: resumeRequestId },
+      meta: { request_id: requestId },
       resume: answer,
-      parent_run_id: parentRunId,
-      resume_request_id: resumeRequestId
+      created_by_run_id: interruptedRunId
     })
     const runId = runResp?.run_id
     if (!runId) {
@@ -3648,7 +3784,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
 .token-usage-stack-legend {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 8px 10px;
   font-size: 11px;
   color: var(--gray-500);
 }
@@ -3658,9 +3794,8 @@ watch(currentChatId, (threadId, oldThreadId) => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .token-usage-stack-legend-item i {
@@ -3688,6 +3823,10 @@ watch(currentChatId, (threadId, oldThreadId) => {
     background: var(--main-500);
   }
 
+  &.is-tool-messages {
+    background: var(--color-primary-500);
+  }
+
   &.is-summary {
     background: var(--color-info-500);
   }
@@ -3706,8 +3845,8 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .token-usage-breakdown {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 6px 10px;
   padding-top: 2px;
 }
@@ -3715,24 +3854,27 @@ watch(currentChatId, (threadId, oldThreadId) => {
 .token-usage-breakdown-row {
   min-width: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 6px;
   font-size: 12px;
   color: var(--gray-500);
+  flex-wrap: wrap;
 }
 
 .token-usage-breakdown-row span,
 .token-usage-breakdown-row strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
 }
 
 .token-usage-breakdown-row strong {
+  flex: 1 1 100%;
   color: var(--gray-800);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .todo-panel-list {
@@ -3746,7 +3888,6 @@ watch(currentChatId, (threadId, oldThreadId) => {
   align-items: center;
   gap: 6px;
   padding: 2px 0;
-  border-bottom: 1px solid var(--gray-50);
 }
 
 .todo-item:last-child {
@@ -3790,7 +3931,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .todo-item-text {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--gray-700);
   word-break: break-word;
@@ -3806,8 +3947,8 @@ watch(currentChatId, (threadId, oldThreadId) => {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
+  gap: 7px;
+  padding: 7px 9px;
   border: 1px solid var(--gray-100);
   border-radius: 10px;
   background: var(--gray-25);
@@ -3840,7 +3981,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .state-list-item-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--gray-900);
   overflow: hidden;
@@ -3849,9 +3990,9 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .state-list-item-meta {
-  margin-top: 2px;
+  margin-top: 1px;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.25;
   color: var(--gray-500);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3859,11 +4000,11 @@ watch(currentChatId, (threadId, oldThreadId) => {
 }
 
 .state-subagent-icon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   border: 1px solid var(--gray-150);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--gray-0);
   object-fit: cover;
 }

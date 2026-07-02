@@ -93,6 +93,7 @@
             <a-select
               v-model:value="newDatabase.chunk_preset_id"
               :options="chunkPresetOptions"
+              :loading="chunkPresetLoading"
               class="full-width"
             />
           </div>
@@ -244,13 +245,20 @@ import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
 import AiTextarea from '@/components/AiTextarea.vue'
+import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { getKbTypeLabel, getKbTypeIcon, getKbTypeColor, kbUtils } from '@/utils/kb_utils'
-import { CHUNK_PRESET_OPTIONS, getChunkPresetDescription } from '@/utils/chunk_presets'
+import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
 
 const route = useRoute()
 const router = useRouter()
 const configStore = useConfigStore()
 const databaseStore = useDatabaseStore()
+const {
+  chunkPresetSelectOptions: chunkPresetOptions,
+  chunkPresetLoading,
+  loadChunkPresetOptions,
+  getChunkPresetDescription
+} = useChunkPresetOptions()
 
 const props = defineProps({
   embedded: { type: Boolean, default: false }
@@ -297,15 +305,13 @@ const createDefaultShareConfig = () => ({
 const shareConfig = ref(createDefaultShareConfig())
 const shareConfigFormRef = ref(null)
 
-const chunkPresetOptions = CHUNK_PRESET_OPTIONS.map(({ label, value }) => ({ label, value }))
-
 const createEmptyDatabaseForm = () => ({
   name: '',
   description: '',
   embedding_model_spec: configStore.config?.embed_model,
   kb_type: '',
   storage: '',
-  chunk_preset_id: 'general',
+  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
   additional_params: {}
 })
 
@@ -419,7 +425,8 @@ const buildRequestData = () => {
   if (selectedKbTypeInfo.value?.requires_embedding_model) {
     requestData.embedding_model_spec =
       newDatabase.embedding_model_spec || configStore.config.embed_model
-    requestData.additional_params.chunk_preset_id = newDatabase.chunk_preset_id || 'general'
+    requestData.additional_params.chunk_preset_id =
+      newDatabase.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
   }
 
   requestData.share_config = {
@@ -519,6 +526,7 @@ watch(
 )
 
 onMounted(() => {
+  loadChunkPresetOptions()
   loadSupportedKbTypes()
   databaseStore.loadDatabases()
 })

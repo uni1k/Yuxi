@@ -7,10 +7,22 @@ import pytest
 from langchain.messages import AIMessageChunk, HumanMessage
 
 from yuxi.services import chat_service as svc
+from yuxi.services.input_message_service import build_chat_input_message
 
 
 async def _fake_normalize_agent_context_config(context, **_kwargs):
     return dict(context or {})
+
+
+class _FakeContext:
+    def __init__(self):
+        self.thread_id = ""
+        self.uid = ""
+        self.temperature = None
+
+    def update(self, data: dict):
+        for key, value in data.items():
+            setattr(self, key, value)
 
 
 class _FakeConvRepo:
@@ -79,20 +91,58 @@ class _FakeConvRepo:
         return []
 
 
+def test_build_langfuse_run_context_reads_evaluation_from_invocation_meta(monkeypatch: pytest.MonkeyPatch):
+    calls: dict[str, object] = {}
+
+    def fake_build_run_context(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(metadata=kwargs.get("extra_metadata") or {}, tags=kwargs.get("extra_tags") or [])
+
+    monkeypatch.setattr(svc, "build_run_context", fake_build_run_context)
+
+    result = svc._build_langfuse_run_context(
+        current_user=SimpleNamespace(id=1, uid="user-1", username="alice", department_id=7),
+        thread_id="thread-1",
+        agent_id="agent-a",
+        request_id="req-1",
+        operation="agent_chat_stream",
+        meta={
+            "source": "agent_evaluation",
+            "agent_invocation_meta": {
+                "evaluation": {
+                    "dataset_name": "dataset-a",
+                    "dataset_item_id": "item-1",
+                    "experiment_name": "exp-1",
+                }
+            },
+        },
+    )
+
+    assert result.metadata == {
+        "source": "agent_evaluation",
+        "feature": "agent_evaluation",
+        "evaluation_dataset_name": "dataset-a",
+        "evaluation_dataset_item_id": "item-1",
+        "evaluation_experiment_name": "exp-1",
+    }
+    assert result.tags == ["agent_evaluation", "dataset:dataset-a", "experiment:exp-1"]
+    assert "evaluation" not in result.metadata
+
+
 @pytest.mark.asyncio
 async def test_stream_agent_chat_passes_langfuse_callbacks_and_persists_trace_info(monkeypatch: pytest.MonkeyPatch):
     calls: dict[str, object] = {}
 
     class FakeAgent:
-        context_schema = None
+        context_schema = _FakeContext
 
-        async def stream_messages(self, messages, input_context=None, **kwargs):
+        async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
             calls["stream_messages"] = messages
             calls["stream_input_context"] = input_context
             calls["stream_kwargs"] = kwargs
-            yield AIMessageChunk(content="hello"), {"node": "llm"}
+            yield "messages", (AIMessageChunk(content="hello"), {"node": "llm"})
 
-        async def get_graph(self):
+        async def get_graph(self, *, context=None):
             class FakeGraph:
                 async def aget_state(self, config):
                     return SimpleNamespace(values={"messages": [], "files": {}, "artifacts": []})
@@ -103,11 +153,12 @@ async def test_stream_agent_chat_passes_langfuse_callbacks_and_persists_trace_in
         return SimpleNamespace(slug="test-agent", backend_id="ChatbotAgent"), FakeAgent(), {"temperature": 0.1}
 
     async def fake_save_messages_from_langgraph_state(
-        *, agent_instance, thread_id, conv_repo, config_dict, trace_info, run_id=None, request_id=None
+        *, agent_instance, thread_id, conv_repo, config_dict, context, trace_info, run_id=None, request_id=None
     ):
         calls["saved_state"] = {
             "thread_id": thread_id,
             "config_dict": config_dict,
+            "context": context,
             "trace_info": trace_info,
             "run_id": run_id,
             "request_id": request_id,
@@ -119,7 +170,7 @@ async def test_stream_agent_chat_passes_langfuse_callbacks_and_persists_trace_in
     async def fake_guard_check_with_keywords(_content):
         return False
 
-    async def fake_interrupts(agent, langgraph_config, make_chunk, meta, thread_id):
+    async def fake_interrupts(agent, langgraph_config, make_chunk, meta, thread_id, context):
         if False:
             yield None
         return
@@ -153,11 +204,10 @@ async def test_stream_agent_chat_passes_langfuse_callbacks_and_persists_trace_in
 
     chunks = []
     async for chunk in svc.stream_agent_chat(
-        query="hello",
-        agent_id="test-agent",
+        agent_slug="test-agent",
         thread_id="thread-1",
         meta={"request_id": "req-1"},
-        image_content=None,
+        input_message=build_chat_input_message("hello"),
         current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
         db=object(),
     ):
@@ -179,6 +229,9 @@ async def test_stream_agent_chat_passes_langfuse_callbacks_and_persists_trace_in
         "langfuse_trace_id": "trace-runtime",
         "langfuse_session_id": "thread-1",
     }
+    assert calls["saved_state"]["context"].thread_id == "thread-1"
+    assert calls["saved_state"]["context"].uid == "user-1"
+    assert calls["saved_state"]["context"].temperature == 0.1
     assert chunks[-1]["status"] == "finished"
     assert calls["flushed"] is True
     assert isinstance(calls["stream_messages"][0], HumanMessage)
@@ -191,7 +244,7 @@ async def test_stream_agent_chat_maps_raw_protocol_events_to_yuxi_stream_events(
             return SimpleNamespace(values={"messages": [], "files": {}, "artifacts": []})
 
     class FakeAgent:
-        context_schema = None
+        context_schema = _FakeContext
 
         async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
             del messages, input_context, kwargs
@@ -235,7 +288,7 @@ async def test_stream_agent_chat_maps_raw_protocol_events_to_yuxi_stream_events(
                             "type": "tool_call",
                             "id": "call-1",
                             "name": "task",
-                            "args": {"description": "do work", "subagent_type": "worker"},
+                            "args": {"description": "do work", "subagent_slug": "worker"},
                         },
                     },
                     metadata,
@@ -246,16 +299,16 @@ async def test_stream_agent_chat_maps_raw_protocol_events_to_yuxi_stream_events(
         async def stream_messages(self, messages, input_context=None, **kwargs):
             raise AssertionError("stream_messages fallback should not be used")
 
-        async def get_graph(self):
+        async def get_graph(self, *, context=None):
             return FakeGraph()
 
     async def fake_resolve_agent_runtime(**_kwargs):
         return SimpleNamespace(slug="test-agent", backend_id="ChatbotAgent"), FakeAgent(), {}
 
     async def fake_save_messages_from_langgraph_state(
-        *, agent_instance, thread_id, conv_repo, config_dict, trace_info, run_id=None, request_id=None
+        *, agent_instance, thread_id, conv_repo, config_dict, context, trace_info, run_id=None, request_id=None
     ):
-        del agent_instance, thread_id, conv_repo, config_dict, trace_info, run_id, request_id
+        del agent_instance, thread_id, conv_repo, config_dict, context, trace_info, run_id, request_id
         return None
 
     async def fake_guard_check(_content):
@@ -264,7 +317,7 @@ async def test_stream_agent_chat_maps_raw_protocol_events_to_yuxi_stream_events(
     async def fake_guard_check_with_keywords(_content):
         return False
 
-    async def fake_interrupts(agent, langgraph_config, make_chunk, meta, thread_id):
+    async def fake_interrupts(agent, langgraph_config, make_chunk, meta, thread_id, context):
         if False:
             yield None
         return
@@ -286,11 +339,10 @@ async def test_stream_agent_chat_maps_raw_protocol_events_to_yuxi_stream_events(
 
     chunks = []
     async for chunk in svc.stream_agent_chat(
-        query="hello",
-        agent_id="test-agent",
+        agent_slug="test-agent",
         thread_id="thread-1",
         meta={"request_id": "req-1"},
-        image_content=None,
+        input_message=build_chat_input_message("hello"),
         current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
         db=object(),
     ):
@@ -312,7 +364,7 @@ async def test_stream_agent_chat_maps_raw_protocol_events_to_yuxi_stream_events(
         "message_id": "msg-1",
         "tool_call_id": "call-1",
         "name": "task",
-        "args": {"description": "do work", "subagent_type": "worker"},
+        "args": {"description": "do work", "subagent_slug": "worker"},
         "index": 1,
         "thread_id": "thread-1",
         "namespace": [],
@@ -327,7 +379,7 @@ async def test_stream_agent_chat_emits_realtime_agent_state_from_values(monkeypa
             return SimpleNamespace(values={"todos": [{"content": "done", "status": "completed"}]})
 
     class FakeAgent:
-        context_schema = None
+        context_schema = _FakeContext
 
         async def stream_messages_with_state(self, messages, input_context=None, **kwargs):
             yield "values", {"messages": [], "todos": [{"content": "step 1", "status": "pending"}]}
@@ -338,16 +390,16 @@ async def test_stream_agent_chat_emits_realtime_agent_state_from_values(monkeypa
         async def stream_messages(self, messages, input_context=None, **kwargs):
             raise AssertionError("stream_messages fallback should not be used")
 
-        async def get_graph(self):
+        async def get_graph(self, *, context=None):
             return FakeGraph()
 
     async def fake_resolve_agent_runtime(**_kwargs):
         return SimpleNamespace(slug="test-agent", backend_id="ChatbotAgent"), FakeAgent(), {}
 
     async def fake_save_messages_from_langgraph_state(
-        *, agent_instance, thread_id, conv_repo, config_dict, trace_info, run_id=None, request_id=None
+        *, agent_instance, thread_id, conv_repo, config_dict, context, trace_info, run_id=None, request_id=None
     ):
-        del agent_instance, thread_id, conv_repo, config_dict, trace_info, run_id, request_id
+        del agent_instance, thread_id, conv_repo, config_dict, context, trace_info, run_id, request_id
         return None
 
     async def fake_guard_check(_content):
@@ -356,7 +408,7 @@ async def test_stream_agent_chat_emits_realtime_agent_state_from_values(monkeypa
     async def fake_guard_check_with_keywords(_content):
         return False
 
-    async def fake_interrupts(agent, langgraph_config, make_chunk, meta, thread_id):
+    async def fake_interrupts(agent, langgraph_config, make_chunk, meta, thread_id, context):
         if False:
             yield None
         return
@@ -378,11 +430,10 @@ async def test_stream_agent_chat_emits_realtime_agent_state_from_values(monkeypa
 
     chunks = []
     async for chunk in svc.stream_agent_chat(
-        query="hello",
-        agent_id="test-agent",
+        agent_slug="test-agent",
         thread_id="thread-1",
         meta={"request_id": "req-1"},
-        image_content=None,
+        input_message=build_chat_input_message("hello"),
         current_user=SimpleNamespace(id=1, uid="user-1", role="user", department_id="dept-1"),
         db=object(),
     ):
@@ -393,3 +444,5 @@ async def test_stream_agent_chat_emits_realtime_agent_state_from_values(monkeypa
     assert agent_state_chunks[0]["agent_state"]["todos"][0]["status"] == "pending"
     assert agent_state_chunks[1]["agent_state"]["todos"][0]["status"] == "in_progress"
     assert agent_state_chunks[2]["agent_state"]["todos"][0]["status"] == "completed"
+    assert all("agent_slug" in chunk.get("meta", {}) for chunk in chunks if isinstance(chunk.get("meta"), dict))
+    assert all("agent_id" not in chunk.get("meta", {}) for chunk in chunks if isinstance(chunk.get("meta"), dict))

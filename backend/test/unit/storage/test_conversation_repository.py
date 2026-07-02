@@ -6,7 +6,11 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from yuxi.repositories.conversation_repository import ConversationRepository, MAX_CONVERSATION_TITLE_LENGTH
+from yuxi.repositories.conversation_repository import (
+    ConversationRepository,
+    INVOCATION_CONVERSATION_SOURCES,
+    MAX_CONVERSATION_TITLE_LENGTH,
+)
 from yuxi.storage.postgres.models_business import Base, Conversation, Message
 from yuxi.utils.datetime_utils import utc_now_naive
 
@@ -41,6 +45,54 @@ def test_normalize_title_trims_spaces():
     normalized = repo._normalize_title("   hello world   ")
 
     assert normalized == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_excludes_invocation_sources(conversation_session):
+    now = utc_now_naive()
+    normal = Conversation(
+        thread_id="thread-normal",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Normal",
+        status="active",
+        created_at=now,
+        updated_at=now,
+        extra_metadata={},
+    )
+    agent_call = Conversation(
+        thread_id="thread-call",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Agent Call Run",
+        status="active",
+        is_pinned=True,
+        created_at=now,
+        updated_at=now + timedelta(minutes=2),
+        extra_metadata={"source": "agent_call"},
+    )
+    agent_eval = Conversation(
+        thread_id="thread-eval",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Agent Evaluation Run",
+        status="active",
+        created_at=now,
+        updated_at=now + timedelta(minutes=1),
+        extra_metadata={"source": "agent_evaluation"},
+    )
+    conversation_session.add_all([normal, agent_call, agent_eval])
+    await conversation_session.commit()
+
+    repo = ConversationRepository(conversation_session)
+    items = await repo.list_conversations(
+        uid="user-a",
+        limit=20,
+        offset=0,
+        exclude_sources=INVOCATION_CONVERSATION_SOURCES,
+    )
+
+    assert [item.thread_id for item in items] == ["thread-normal"]
 
 
 @pytest.mark.asyncio
@@ -131,6 +183,75 @@ async def test_search_conversations_by_message_content_filters_user_status_and_t
     assert items[0]["matched_count"] == 1
     assert items[0]["message_id"] is not None
     assert "大陆部署方案" in items[0]["snippets"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_search_conversations_by_message_content_excludes_invocation_sources(conversation_session):
+    now = utc_now_naive()
+    normal = Conversation(
+        thread_id="thread-normal",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Normal",
+        status="active",
+        created_at=now,
+        updated_at=now,
+        extra_metadata={},
+    )
+    agent_call = Conversation(
+        thread_id="thread-call",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Agent Call Run",
+        status="active",
+        created_at=now,
+        updated_at=now + timedelta(minutes=2),
+        extra_metadata={"source": "agent_call"},
+    )
+    agent_eval = Conversation(
+        thread_id="thread-eval",
+        uid="user-a",
+        agent_id="agent-a",
+        title="Agent Evaluation Run",
+        status="active",
+        created_at=now,
+        updated_at=now + timedelta(minutes=1),
+        extra_metadata={"source": "agent_evaluation"},
+    )
+    conversation_session.add_all([normal, agent_call, agent_eval])
+    await conversation_session.flush()
+    conversation_session.add_all(
+        [
+            Message(conversation=normal, role="user", content="导航隐藏检查", message_type="text", created_at=now),
+            Message(
+                conversation=agent_call,
+                role="user",
+                content="导航隐藏检查 call",
+                message_type="text",
+                created_at=now,
+            ),
+            Message(
+                conversation=agent_eval,
+                role="user",
+                content="导航隐藏检查 eval",
+                message_type="text",
+                created_at=now,
+            ),
+        ]
+    )
+    await conversation_session.commit()
+
+    repo = ConversationRepository(conversation_session)
+    items, has_more = await repo.search_conversations_by_message_content(
+        uid="user-a",
+        query="导航隐藏检查",
+        limit=20,
+        offset=0,
+        exclude_sources=INVOCATION_CONVERSATION_SOURCES,
+    )
+
+    assert has_more is False
+    assert [item["conversation"].thread_id for item in items] == ["thread-normal"]
 
 
 @pytest.mark.asyncio

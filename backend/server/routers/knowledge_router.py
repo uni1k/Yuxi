@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 from yuxi import config, knowledge_base
+from yuxi.knowledge.chunking.ragflow_like.presets import get_chunk_preset_options
 from yuxi.knowledge.factory import KnowledgeBaseFactory
 from yuxi.knowledge.graphs.milvus_graph_service import GRAPH_TASK_TYPE, MilvusGraphService
 from yuxi.knowledge.parser import SUPPORTED_FILE_EXTENSIONS, Parser, is_supported_file_extension
@@ -1969,6 +1970,12 @@ async def get_knowledge_base_types(current_user: User = Depends(get_admin_user))
     except Exception as e:
         logger.error(f"获取知识库类型失败 {e}, {traceback.format_exc()}")
         return {"message": f"获取知识库类型失败 {e}", "kb_types": {}}
+
+
+@knowledge.get("/chunk-presets")
+async def get_knowledge_chunk_presets(current_user: User = Depends(get_admin_user)):
+    """获取支持的知识库分块策略"""
+    return {"chunk_presets": get_chunk_preset_options(), "message": "success"}
 
 
 @knowledge.get("/stats")

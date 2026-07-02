@@ -1,4 +1,16 @@
-"""Agent run service (run creation, polling stream, cancel)."""
+"""AgentRun lifecycle service.
+
+This module owns the durable ``AgentRun`` contract: validating the run scope,
+persisting the input message, creating the run row, enqueueing worker execution,
+streaming run events, loading final results and requesting cancellation.
+
+Keep source-specific orchestration outside this file. Normal chat, external
+invocation and subagent tools may all create AgentRun records, but each caller
+should translate its own request shape into this module's public run APIs first.
+The worker then executes every run through the same queue and ``chat_service``
+runtime path, so this module must not depend on agent-call, evaluation or
+subagent presentation details.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +19,8 @@ import json
 import os
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -19,53 +32,81 @@ from yuxi.models.providers.cache import model_cache
 from yuxi.repositories.agent_repository import AgentRepository
 from yuxi.repositories.agent_run_repository import TERMINAL_RUN_STATUSES, AgentRunRepository
 from yuxi.repositories.conversation_repository import ConversationRepository
+from yuxi.services.input_message_service import (
+    AgentRunInputMessage,
+    build_resume_input_message,
+)
 from yuxi.services.run_queue_service import (
     build_run_event_envelope,
     get_arq_pool,
     get_last_run_stream_seq,
     list_run_stream_events,
+    list_recent_run_stream_events,
     normalize_after_seq,
     publish_cancel_signal,
 )
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import Message, User
 from yuxi.utils.datetime_utils import utc_now_naive
+from yuxi.utils.hash_utils import hash_id
 from yuxi.utils.logging_config import logger
 
-SSE_HEARTBEAT_SECONDS = int(os.getenv("RUN_SSE_HEARTBEAT_SECONDS", "15"))
-SSE_MAX_CONNECTION_MINUTES = int(os.getenv("RUN_SSE_MAX_CONNECTION_MINUTES", "30"))
-SSE_POLL_INTERVAL_SECONDS = float(os.getenv("RUN_SSE_POLL_INTERVAL_SECONDS", "1.0"))
+SSE_HEARTBEAT_SECONDS = int(os.getenv("RUN_SSE_HEARTBEAT_SECONDS", "15"))  # SSE 连接空闲多久发送心跳
+SSE_MAX_CONNECTION_MINUTES = int(os.getenv("RUN_SSE_MAX_CONNECTION_MINUTES", "30"))  # SSE 连接最大持续时间
+SSE_POLL_INTERVAL_SECONDS = float(os.getenv("RUN_SSE_POLL_INTERVAL_SECONDS", "1.0"))  # SSE 轮询间隔
+RUN_PROGRESS_RECENT_EVENT_SCAN_LIMIT = 100
+RUN_PROGRESS_MESSAGE_LIMIT = 3
+RUN_PROGRESS_CONTENT_MAX_CHARS = 800
 
 
-def _validate_model_spec(model_spec: str | None) -> str | None:
-    """校验对话级模型覆盖：未提供则返回 None；非法模型直接 422，不静默回退。"""
+def _resolve_agent_run_request_id(
+    *,
+    meta: dict,
+    run_type: Literal["chat", "resume"],
+    resume: object | None,
+    created_by_run_id: str | None,
+) -> str:
+    raw_request_id = meta.get("request_id")
+    if raw_request_id:
+        return str(raw_request_id)
+    if run_type == "resume":
+        resume_key = json.dumps(resume, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        return hash_id("resume:", f"{created_by_run_id}:{resume_key}", length=64)
+    return str(uuid.uuid4())
+
+
+class AgentRunWaitTimeout(Exception):
+    """等待结束但 run 尚未进入终态。"""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        self.result = result
+        status = str(result.get("status") or "unknown")
+        run_id = str(result.get("agent_run_id") or result.get("run_id") or "")
+        super().__init__(f"agent run {run_id} is still {status} after waiting")
+
+
+def resolve_agent_run_model_spec(model_spec: str | None, agent_item, agent_backend) -> str:
+    """解析本次 run 实际使用的模型：显式覆盖优先，否则配置模型，最后系统默认模型。"""
     normalized = model_spec.strip() if isinstance(model_spec, str) else None
-    if not normalized:
-        return None
-    info = model_cache.get_model_info(normalized)
-    if not info or info.model_type != "chat":
-        raise HTTPException(status_code=422, detail=f"未找到可用聊天模型: '{normalized}'")
-    return normalized
-
-
-def _resolve_effective_model_spec(model_spec: str | None, agent_item, agent_backend) -> str:
-    """解析本次 chat run 实际使用的模型：显式覆盖优先，否则配置模型，最后系统默认模型。"""
-    resolved_model_spec = _validate_model_spec(model_spec)
-    if resolved_model_spec:
-        return resolved_model_spec
+    if normalized:
+        info = model_cache.get_model_info(normalized)
+        if not info or info.model_type != "chat":
+            raise HTTPException(status_code=422, detail=f"未找到可用聊天模型: '{normalized}'")
+        return normalized
 
     context = agent_backend.context_schema()
     config_json = getattr(agent_item, "config_json", None) or {}
     config_context = config_json.get("context") if isinstance(config_json, dict) else {}
     if isinstance(config_context, dict):
         context.update_from_dict(config_context)
+
     return resolve_chat_model_spec(getattr(context, "model", None))
 
 
 def _build_run_response(run) -> dict:
     return {
         "run_id": run.id,
-        "thread_id": run.thread_id,
+        "thread_id": run.conversation_thread_id,
         "status": run.status,
         "request_id": run.request_id,
         "stream_url": f"/api/agent/runs/{run.id}/events",
@@ -136,7 +177,6 @@ def _compact_stream_chunk(chunk: dict) -> dict:
         for key in (
             "status",
             "run_id",
-            "parent_run_id",
             "message",
             "error_type",
             "error_message",
@@ -236,35 +276,344 @@ def _compact_run_event_envelope(envelope: dict) -> dict | None:
     return compact
 
 
-async def create_agent_run(
+def _progress_message_from_chunk(chunk: dict, *, seq: str) -> dict | None:
+    """把单个消息 chunk 转成 status 可展示的一条进度。"""
+    stream_event = chunk.get("stream_event")
+    if not isinstance(stream_event, dict):
+        return None
+    stream_type = stream_event.get("type")
+    message_id = str(stream_event.get("message_id") or "").strip()
+
+    content = ""
+    kind = ""
+    if stream_type == "message_delta":
+        content = (
+            stream_event.get("content")
+            or stream_event.get("reasoning_content")
+            or stream_event.get("additional_reasoning_content")
+            or ""
+        )
+        kind = "assistant_message" if stream_event.get("content") else "assistant_reasoning"
+    elif stream_type in {"tool_call", "tool_call_delta"}:
+        tool_name = str(stream_event.get("name") or stream_event.get("tool_call_id") or "工具").strip()
+        content = f"调用工具 {tool_name}" if stream_type == "tool_call" else f"正在准备工具 {tool_name}"
+        kind = stream_type
+    else:
+        return None
+
+    content = str(content).strip()
+    if not content:
+        return None
+    if len(content) > RUN_PROGRESS_CONTENT_MAX_CHARS:
+        content = "..." + content[-RUN_PROGRESS_CONTENT_MAX_CHARS:]
+
+    base = {"seq": seq}
+    if message_id:
+        base["message_id"] = message_id
+    tool_call_id = str(stream_event.get("tool_call_id") or "").strip()
+    if tool_call_id:
+        base["tool_call_id"] = tool_call_id
+    return {**base, "kind": kind, "content": content}
+
+
+async def get_agent_run_progress(run_id: str, *, message_limit: int = RUN_PROGRESS_MESSAGE_LIMIT) -> dict:
+    """读取适合 status 轮询返回的轻量运行进度快照。"""
+    try:
+        events = await list_recent_run_stream_events(run_id, limit=RUN_PROGRESS_RECENT_EVENT_SCAN_LIMIT)
+    except Exception as e:
+        logger.warning(f"Failed to read run progress events for run {run_id}: {e}")
+        return {"last_seq": "0-0", "messages": []}
+
+    last_seq = str(events[0]["seq"]) if events else "0-0"
+    limit = max(1, int(message_limit or RUN_PROGRESS_MESSAGE_LIMIT))
+    messages = []
+
+    for event in events:
+        envelope = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event.get("event_type") != "messages" and envelope.get("event") != "messages":
+            continue
+        payload = envelope.get("payload")
+        if not isinstance(payload, dict):
+            continue
+
+        chunks = []
+        if isinstance(payload.get("chunk"), dict):
+            chunks.append(payload["chunk"])
+        if isinstance(payload.get("items"), list):
+            chunks.extend(item for item in payload["items"] if isinstance(item, dict))
+
+        for chunk in reversed(chunks):
+            message = _progress_message_from_chunk(chunk, seq=str(event.get("seq") or ""))
+            if message:
+                messages.append(message)
+            if len(messages) >= limit:
+                return {"last_seq": last_seq, "messages": list(reversed(messages))}
+
+    return {"last_seq": last_seq, "messages": list(reversed(messages))}
+
+
+async def create_agent_run_view(
     *,
-    query: str | None,
-    agent_id: str,
+    input_message: AgentRunInputMessage | None,
+    agent_slug: str,
     thread_id: str,
     meta: dict,
-    image_content: str | None,
     current_uid: str,
     db: AsyncSession,
     model_spec: str | None = None,
     resume: object | None = None,
-    parent_run_id: str | None = None,
-    resume_request_id: str | None = None,
-    run_type: str | None = None,
-    parent_agent_run_id: str | None = None,
-    checkpoint_thread_id: str | None = None,
-    persist_input_message: bool = True,
+    created_by_run_id: str | None = None,
+) -> dict:
+    """创建 chat/resume run 的 HTTP 入口，输入正文由 Message 承载，run 只登记运行元数据。"""
+    meta = meta or {}
+    if input_message is None and resume is None:
+        raise HTTPException(status_code=422, detail="input_message 或 resume 不能为空")
+
+    run_type = "resume" if resume is not None else "chat"
+    run_created_by_id = created_by_run_id if run_type == "resume" else None
+    request_id = _resolve_agent_run_request_id(
+        meta=meta,
+        run_type=run_type,
+        resume=resume,
+        created_by_run_id=run_created_by_id,
+    )
+
+    scope = await prepare_agent_run_creation_scope(
+        agent_slug=agent_slug,
+        conversation_thread_id=thread_id,
+        current_uid=current_uid,
+        db=db,
+        request_id=request_id,
+        run_type=run_type,
+        agent_kind="main",
+        created_by_run_id=run_created_by_id,
+    )
+    if scope.existing_run:
+        return _build_run_response(scope.existing_run)
+
+    if run_type == "resume":
+        resolved_model_spec = scope.parent_run.input_payload["model_spec"]
+    else:
+        resolved_model_spec = resolve_agent_run_model_spec(model_spec, scope.agent_item, scope.agent_backend)
+
+    run_input_message = _prepare_run_input_message(
+        run_type=run_type,
+        input_message=input_message,
+        resume=resume,
+        request_id=request_id,
+        model_spec=resolved_model_spec,
+        meta=meta,
+    )
+
+    persisted_input_message = await create_agent_run_input_message(
+        db=db,
+        conversation_id=scope.conversation.id,
+        request_id=request_id,
+        input_message=run_input_message,
+    )
+    input_payload = {"model_spec": resolved_model_spec}
+
+    run, created = await persist_agent_run_record(
+        agent_slug=agent_slug,
+        conversation_thread_id=thread_id,
+        current_uid=current_uid,
+        db=db,
+        request_id=request_id,
+        conversation_id=scope.conversation.id,
+        run_type=run_type,
+        input_payload=input_payload,
+        persisted_input_message=persisted_input_message,
+        created_by_run_id=run_created_by_id,
+    )
+    if created:
+        await db.commit()
+        await enqueue_agent_run(run.id)
+
+    return _build_run_response(run)
+
+
+@dataclass(frozen=True)
+class AgentRunCreationScope:
+    """run 创建前置校验后的数据库作用域，避免和 Agent runtime context 混淆。"""
+
+    conversation: Any
+    agent_item: Any
+    agent_backend: Any
+    existing_run: Any | None
+    parent_run: Any | None = None
+
+
+def _prepare_run_input_message(
+    *,
+    run_type: Literal["chat", "resume"],
+    input_message: AgentRunInputMessage | None,
+    resume: object | None,
+    request_id: str,
+    model_spec: str,
+    meta: dict,
+) -> AgentRunInputMessage:
+    metadata: dict[str, Any] = {"request_id": request_id}
+    if attachment_file_ids := (meta.get("attachment_file_ids") or []):
+        metadata["attachment_file_ids"] = attachment_file_ids
+    if source := meta.get("source"):
+        metadata["source"] = source
+    if isinstance(meta.get("agent_invocation_meta"), dict):
+        metadata["agent_invocation_meta"] = meta["agent_invocation_meta"]
+    if run_type == "chat":
+        if input_message is None:
+            raise HTTPException(status_code=422, detail="input_message 不能为空")
+        if raw_message := input_message.raw_message():
+            metadata["raw_message"] = raw_message
+        return input_message.with_metadata(metadata)
+
+    metadata["resume"] = resume
+    metadata["source"] = "ask_user_question_resume"
+    return build_resume_input_message(resume).with_metadata(metadata)
+
+
+def _same_run_request_scope(
+    run,
+    *,
+    uid: str,
+    agent_slug: str,
+    conversation_thread_id: str,
+    run_type: str,
+    created_by_run_id: str | None = None,
+    subagent_thread_relation_id: int | None = None,
+) -> bool:
+    """判断幂等命中的 run 是否确实属于同一次语义创建请求。"""
+    return (
+        run.uid == str(uid)
+        and run.agent_slug == agent_slug
+        and run.conversation_thread_id == conversation_thread_id
+        and run.run_type == run_type
+        and run.created_by_run_id == created_by_run_id
+        and getattr(run, "subagent_thread_relation_id", None) == subagent_thread_relation_id
+    )
+
+
+def _run_busy_exception(*, active_run, agent_slug: str, conversation_thread_id: str) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "run_busy",
+            "message": "该智能体线程正在运行，请等待、查询或取消当前运行后再继续",
+            "active_run_id": active_run.id,
+            "active_run_status": active_run.status,
+            "agent_slug": agent_slug,
+            "thread_id": conversation_thread_id,
+        },
+    )
+
+
+async def create_agent_run_input_message(
+    *,
+    db: AsyncSession,
+    conversation_id: int,
+    request_id: str,
+    input_message: AgentRunInputMessage,
+) -> Message:
+    """先落库输入消息；run 创建后再回填 run_id，避免 Message 外键先指向不存在的 run。"""
+    message = Message(
+        conversation_id=conversation_id,
+        role="user",
+        content=input_message.content,
+        message_type=input_message.message_type,
+        image_content=input_message.image_content,
+        request_id=request_id,
+        delivery_status="complete",
+        extra_metadata=input_message.extra_metadata,
+    )
+    db.add(message)
+    await db.flush()
+    return message
+
+
+async def persist_agent_run_record(
+    *,
+    agent_slug: str,
+    conversation_thread_id: str,
+    current_uid: str,
+    db: AsyncSession,
+    request_id: str,
+    conversation_id: int,
+    run_type: str,
+    input_payload: dict,
+    persisted_input_message: Message,
+    created_by_run_id: str | None = None,
+    subagent_thread_relation_id: int | None = None,
 ) -> tuple[Any, bool]:
-    if not query and resume is None:
-        raise HTTPException(status_code=422, detail="query 或 resume 不能为空")
+    """登记一条 AgentRun 并绑定已创建的输入消息，返回是否为本次新建。"""
+    run_id = str(uuid.uuid4())
+    try:
+        async with db.begin_nested():
+            run = await AgentRunRepository(db).create_run(
+                run_id=run_id,
+                conversation_thread_id=conversation_thread_id,
+                agent_slug=agent_slug,
+                uid=str(current_uid),
+                request_id=request_id,
+                input_payload=input_payload,
+                conversation_id=conversation_id,
+                created_by_run_id=created_by_run_id,
+                subagent_thread_relation_id=subagent_thread_relation_id,
+                run_type=run_type,
+                input_message_id=persisted_input_message.id,
+            )
+            persisted_input_message.run_id = run_id
+            await db.flush()
+    except IntegrityError:
+        run_repo = AgentRunRepository(db)
+        existing = await run_repo.get_run_by_request_id(request_id)
+        if existing and _same_run_request_scope(
+            existing,
+            uid=str(current_uid),
+            agent_slug=agent_slug,
+            conversation_thread_id=conversation_thread_id,
+            run_type=run_type,
+            created_by_run_id=created_by_run_id,
+            subagent_thread_relation_id=subagent_thread_relation_id,
+        ):
+            await db.delete(persisted_input_message)
+            await db.flush()
+            return existing, False
+        active_run = await run_repo.get_active_run_by_thread_for_user(
+            agent_slug=agent_slug,
+            conversation_thread_id=conversation_thread_id,
+            uid=str(current_uid),
+        )
+        if active_run:
+            raise _run_busy_exception(
+                active_run=active_run,
+                agent_slug=agent_slug,
+                conversation_thread_id=conversation_thread_id,
+            )
+        raise HTTPException(status_code=409, detail="request_id 冲突")
 
-    if not thread_id:
-        raise HTTPException(status_code=422, detail="thread_id 不能为空")
+    return run, True
 
-    conv_repo = ConversationRepository(db)
-    conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
+
+async def prepare_agent_run_creation_scope(
+    *,
+    agent_slug: str,
+    conversation_thread_id: str,
+    current_uid: str,
+    db: AsyncSession,
+    request_id: str,
+    run_type: Literal["chat", "resume", "subagent"],
+    agent_kind: Literal["main", "subagent"],
+    created_by_run_id: str | None = None,
+    subagent_thread_relation_id: int | None = None,
+) -> AgentRunCreationScope:
+    """校验 run 创建作用域，加载对话、智能体、后端和幂等状态，并拒绝同线程并发写入。"""
+    if not conversation_thread_id:
+        raise HTTPException(status_code=422, detail="conversation_thread_id 不能为空")
+
+    conversation = await ConversationRepository(db).get_conversation_by_thread_id(conversation_thread_id)
     if not conversation or conversation.uid != str(current_uid) or conversation.status == "deleted":
         raise HTTPException(status_code=404, detail="对话线程不存在")
-    if conversation.agent_id != agent_id:
+    # Conversation.agent_id 是历史字段名，实际保存的是 Agent.slug。
+    if conversation.agent_id != agent_slug:
         raise HTTPException(status_code=409, detail="已有线程已绑定智能体，不能切换")
 
     user_result = await db.execute(select(User).where(User.uid == str(current_uid)))
@@ -273,161 +622,66 @@ async def create_agent_run(
         raise HTTPException(status_code=404, detail="用户不存在")
 
     agent_repo = AgentRepository(db)
-    agent_item = await agent_repo.get_visible_by_slug(slug=agent_id, user=current_user)
+    agent_item = await agent_repo.get_visible_by_slug(slug=agent_slug, user=current_user, kind=agent_kind)
     if not agent_item:
         raise HTTPException(status_code=404, detail="智能体不存在")
+
     agent_backend = agent_manager.get_agent(agent_item.backend_id)
     if not agent_backend:
         raise HTTPException(status_code=404, detail=f"智能体后端 {agent_item.backend_id} 不存在")
 
-    resolved_run_type = run_type or ("resume" if resume is not None else "chat")
-    request_id = str(resume_request_id or (meta or {}).get("request_id") or uuid.uuid4())
-    config = {"thread_id": thread_id, "agent_id": agent_id}
     run_repo = AgentRunRepository(db)
-    # chat：快照本次实际模型；resume：沿用被恢复运行的原始模型，保证单次运行模型一致。
-    resolved_model_spec = (
-        _resolve_effective_model_spec(model_spec, agent_item, agent_backend) if resolved_run_type == "chat" else None
-    )
-    if resolved_run_type == "resume":
-        if not parent_run_id:
-            raise HTTPException(status_code=422, detail="parent_run_id 不能为空")
-        parent_run = await run_repo.get_run_for_user(parent_run_id, str(current_uid))
-        if not parent_run or parent_run.thread_id != thread_id:
-            raise HTTPException(status_code=404, detail="被恢复的运行任务不存在")
-        if parent_run.status != "interrupted":
-            raise HTTPException(status_code=409, detail="只有 interrupted run 可以恢复")
-        resolved_model_spec = (parent_run.input_payload or {}).get("model_spec")
-        if resume_request_id:
-            existing_resume = await run_repo.get_resume_run(parent_run_id, resume_request_id)
-            if existing_resume and existing_resume.uid == str(current_uid):
-                return existing_resume, False
     existing = await run_repo.get_run_by_request_id(request_id)
-    if existing and existing.uid == str(current_uid):
-        return existing, False
     if existing and existing.uid != str(current_uid):
         raise HTTPException(status_code=409, detail="request_id 冲突")
-
-    run_id = str(uuid.uuid4())
-    input_payload = {
-        "query": query or "",
-        "resume": resume,
-        "parent_run_id": parent_run_id,
-        "resume_request_id": resume_request_id,
-        "parent_agent_run_id": parent_agent_run_id,
-        "run_type": resolved_run_type,
-        "config": config or {},
-        "image_content": image_content,
-        "model_spec": resolved_model_spec,
-        "agent_id": agent_id,
-        "backend_id": agent_item.backend_id,
-        "thread_id": thread_id,
-        "uid": str(current_uid),
-        "request_id": request_id,
-        "attachment_file_ids": (meta or {}).get("attachment_file_ids") or [],
-        "source": (meta or {}).get("source"),
-        "evaluation": (meta or {}).get("evaluation") or None,
-        "created_at": utc_now_naive().isoformat(),
-    }
-    try:
-        run = await run_repo.create_run(
-            run_id=run_id,
-            thread_id=thread_id,
-            agent_id=agent_id,
-            uid=str(current_uid),
-            request_id=request_id,
-            input_payload=input_payload,
-            conversation_id=conversation.id,
-            parent_run_id=parent_run_id,
-            parent_agent_run_id=parent_agent_run_id,
-            run_type=resolved_run_type,
-            resume_request_id=resume_request_id,
-            checkpoint_thread_id=checkpoint_thread_id or thread_id,
-        )
-        if persist_input_message:
-            input_content = query or json.dumps(resume, ensure_ascii=False)
-            input_metadata = {
-                "request_id": request_id,
-                "run_id": run_id,
-                "run_type": resolved_run_type,
-                "parent_run_id": parent_run_id,
-                "resume": resume,
-                "attachments": [],
-                "model_spec": resolved_model_spec,
-            }
-            if parent_agent_run_id:
-                input_metadata["parent_agent_run_id"] = parent_agent_run_id
-            if (meta or {}).get("source"):
-                input_metadata["source"] = (meta or {}).get("source")
-            if (meta or {}).get("evaluation"):
-                input_metadata["evaluation"] = (meta or {}).get("evaluation")
-            if resolved_run_type == "resume":
-                input_metadata["source"] = "ask_user_question_resume"
-
-            input_message = Message(
-                conversation_id=conversation.id,
-                role="user",
-                content=input_content,
-                message_type="resume"
-                if resolved_run_type == "resume"
-                else "multimodal_image"
-                if image_content
-                else "text",
-                image_content=image_content,
-                run_id=run_id,
-                request_id=request_id,
-                delivery_status="complete",
-                extra_metadata=input_metadata,
-            )
-            db.add(input_message)
-            await db.flush()
-            await run_repo.set_input_message(run_id, input_message.id)
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        existing = await run_repo.get_run_by_request_id(request_id)
-        if existing and existing.uid == str(current_uid):
-            return existing, False
+    if existing and not _same_run_request_scope(
+        existing,
+        uid=str(current_uid),
+        agent_slug=agent_slug,
+        conversation_thread_id=conversation_thread_id,
+        run_type=run_type,
+        created_by_run_id=created_by_run_id,
+        subagent_thread_relation_id=subagent_thread_relation_id,
+    ):
         raise HTTPException(status_code=409, detail="request_id 冲突")
-
-    return run, True
+    parent_run = None
+    if run_type == "resume":
+        if not created_by_run_id:
+            raise HTTPException(status_code=422, detail="created_by_run_id 不能为空")
+        if not existing:
+            parent_run = await run_repo.get_run_for_user(created_by_run_id, str(current_uid))
+            if not parent_run or parent_run.conversation_thread_id != conversation_thread_id:
+                raise HTTPException(status_code=404, detail="被恢复的运行任务不存在")
+            if parent_run.status != "interrupted":
+                raise HTTPException(status_code=409, detail="只有 interrupted run 可以恢复")
+            parent_payload = parent_run.input_payload
+            if not isinstance(parent_payload, dict) or not parent_payload.get("model_spec"):
+                raise HTTPException(status_code=409, detail="被恢复的运行任务缺少模型快照")
+    if not existing:
+        active_run = await run_repo.get_active_run_by_thread_for_user(
+            agent_slug=agent_slug,
+            conversation_thread_id=conversation_thread_id,
+            uid=str(current_uid),
+        )
+        if active_run:
+            raise _run_busy_exception(
+                active_run=active_run,
+                agent_slug=agent_slug,
+                conversation_thread_id=conversation_thread_id,
+            )
+    return AgentRunCreationScope(
+        conversation=conversation,
+        agent_item=agent_item,
+        agent_backend=agent_backend,
+        existing_run=existing,
+        parent_run=parent_run,
+    )
 
 
 async def enqueue_agent_run(run_id: str) -> None:
+    """把已持久化的 run 投递到后台 worker 队列。"""
     queue = await get_arq_pool()
     await queue.enqueue_job("process_agent_run", run_id, _job_id=f"run:{run_id}")
-
-
-async def create_agent_run_view(
-    *,
-    query: str | None,
-    agent_id: str,
-    thread_id: str,
-    meta: dict,
-    image_content: str | None,
-    current_uid: str,
-    db: AsyncSession,
-    model_spec: str | None = None,
-    resume: object | None = None,
-    parent_run_id: str | None = None,
-    resume_request_id: str | None = None,
-) -> dict:
-    run, created = await create_agent_run(
-        query=query,
-        agent_id=agent_id,
-        thread_id=thread_id,
-        meta=meta,
-        image_content=image_content,
-        current_uid=current_uid,
-        db=db,
-        model_spec=model_spec,
-        resume=resume,
-        parent_run_id=parent_run_id,
-        resume_request_id=resume_request_id,
-    )
-    if created:
-        await enqueue_agent_run(run.id)
-
-    return _build_run_response(run)
 
 
 async def get_agent_run_view(*, run_id: str, current_uid: str, db: AsyncSession) -> dict:
@@ -479,8 +733,8 @@ async def get_agent_run_result(*, run_id: str, current_uid: str, db: AsyncSessio
     payload: dict[str, Any] = {
         "status": run.status,
         "output": output_message.content if output_message else "",
-        "agent_slug": run.agent_id,
-        "thread_id": run.thread_id,
+        "agent_slug": run.agent_slug,
+        "thread_id": run.conversation_thread_id,
         "conversation_id": run.conversation_id,
         "agent_run_id": run.id,
         "request_id": run.request_id,
@@ -490,10 +744,6 @@ async def get_agent_run_result(*, run_id: str, current_uid: str, db: AsyncSessio
     if run.error_type or run.error_message:
         payload["error"] = {"type": run.error_type, "message": run.error_message}
     return payload
-
-
-async def get_agent_run_result_view(*, run_id: str, current_uid: str, db: AsyncSession) -> dict:
-    return await get_agent_run_result(run_id=run_id, current_uid=current_uid, db=db)
 
 
 async def load_agent_run_result(*, run_id: str, current_uid: str) -> dict:
@@ -507,10 +757,14 @@ async def await_agent_run_result(*, run_id: str, current_uid: str) -> dict:
 
     复用有限事件流 ``stream_agent_run_events``：它在 run 终结或超时后自然结束，
     因此排空即等待，无需额外轮询。等待上限继承事件流内部的 ``SSE_MAX_CONNECTION_MINUTES``。
+    如果等待结束后 run 仍非终态，抛出 ``AgentRunWaitTimeout``，避免调用方把非终态误当最终结果。
     """
     async for _ in stream_agent_run_events(run_id=run_id, after_seq="0-0", current_uid=current_uid, verbose=False):
         pass
-    return await load_agent_run_result(run_id=run_id, current_uid=current_uid)
+    result = await load_agent_run_result(run_id=run_id, current_uid=current_uid)
+    if str(result.get("status") or "") not in TERMINAL_RUN_STATUSES:
+        raise AgentRunWaitTimeout(result)
+    return result
 
 
 async def request_cancel_agent_run(
@@ -520,24 +774,30 @@ async def request_cancel_agent_run(
     db: AsyncSession,
     cascade_children: bool = False,
 ):
+    """请求取消一个 run，并可同时向仍活跃的子 run 发布取消信号。"""
     repo = AgentRunRepository(db)
     run = await repo.get_run_for_user(run_id, str(current_uid))
     if not run:
         raise HTTPException(status_code=404, detail="运行任务不存在")
 
+    # FOR UPDATE 写锁在同一会话上必须串行；取消信号之间互不依赖，统一并发发布。
+    cancelled_ids = []
     if cascade_children:
         child_runs = await repo.list_active_child_runs_for_user(run_id, str(current_uid))
         for child_run in child_runs:
             await repo.request_cancel(child_run.id)
-            await publish_cancel_signal(child_run.id)
+            cancelled_ids.append(child_run.id)
 
     run = await repo.request_cancel(run_id)
-    await publish_cancel_signal(run_id)
+    cancelled_ids.append(run_id)
+    await db.commit()
+    await asyncio.gather(*(publish_cancel_signal(cid) for cid in cancelled_ids))
     return run
 
 
 async def cancel_agent_run_view(*, run_id: str, current_uid: str, db: AsyncSession) -> dict:
-    run = await request_cancel_agent_run(run_id=run_id, current_uid=current_uid, db=db)
+    """HTTP 取消入口：取消父 run 时默认级联取消活跃子 run。"""
+    run = await request_cancel_agent_run(run_id=run_id, current_uid=current_uid, db=db, cascade_children=True)
     return {"run": run.to_dict() if run else None}
 
 
@@ -548,6 +808,7 @@ async def stream_agent_run_events(
     current_uid: str,
     verbose: bool = True,
 ) -> AsyncIterator[str]:
+    """按 SSE 格式读取 run 事件流；终结事件缺失时根据数据库状态补发 end。"""
     started_at = utc_now_naive()
     last_heartbeat_ts = started_at
 
@@ -615,7 +876,7 @@ async def stream_agent_run_events(
                     terminal_seq = None
                 terminal_envelope = build_run_event_envelope(
                     run_id=run_id,
-                    thread_id=run.thread_id,
+                    thread_id=run.conversation_thread_id,
                     event_type="end",
                     payload={"status": run.status, "request_id": run.request_id},
                     created_at=utc_now_naive().isoformat(),
@@ -645,7 +906,7 @@ async def stream_agent_run_events(
 
 
 async def get_active_run_by_thread(*, thread_id: str, current_uid: str, db: AsyncSession) -> dict:
-    from sqlalchemy import select
+    """读取线程当前仍需前端关注的最近一个 chat/resume run。"""
     from yuxi.storage.postgres.models_business import AgentRun
 
     # 线程内的 run 是串行的，最近一条 run 即代表线程当前状态。
@@ -653,7 +914,7 @@ async def get_active_run_by_thread(*, thread_id: str, current_uid: str, db: Asyn
     result = await db.execute(
         select(AgentRun)
         .where(
-            AgentRun.thread_id == thread_id,
+            AgentRun.conversation_thread_id == thread_id,
             AgentRun.uid == str(current_uid),
             AgentRun.run_type.in_(["chat", "resume"]),
         )

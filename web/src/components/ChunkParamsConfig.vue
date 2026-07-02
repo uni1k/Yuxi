@@ -16,10 +16,11 @@
         <a-select
           v-model:value="localParams.chunk_preset_id"
           :options="presetOptions"
+          :loading="chunkPresetLoading"
           style="width: 100%"
         />
         <p class="param-description">
-          预设策略对齐 RAGFlow：General、QA、Book、Laws。
+          选择适合当前文档结构的分块策略。
           <span v-if="allowPresetFollowDefault">留空时沿用知识库默认策略。</span>
         </p>
       </a-form-item>
@@ -80,14 +81,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import {
-  CHUNK_PRESET_OPTIONS,
-  CHUNK_PRESET_LABEL_MAP,
-  getChunkPresetDescription,
-  isPlainObject
-} from '@/utils/chunk_presets'
+import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
+import { DEFAULT_CHUNK_PRESET_ID, isPlainObject } from '@/utils/chunkUtils'
 
 const props = defineProps({
   tempChunkParams: {
@@ -112,12 +109,19 @@ const props = defineProps({
   },
   databasePresetId: {
     type: String,
-    default: 'general'
+    default: DEFAULT_CHUNK_PRESET_ID
   }
 })
 
 const localParams = computed(() => props.tempChunkParams)
 const fallbackParserConfig = ref({})
+const {
+  chunkPresetSelectOptions,
+  chunkPresetLabelMap,
+  chunkPresetLoading,
+  loadChunkPresetOptions,
+  getChunkPresetDescription
+} = useChunkPresetOptions()
 
 const parserConfig = computed(() => {
   if (!isPlainObject(props.tempChunkParams.chunk_parser_config)) {
@@ -128,7 +132,10 @@ const parserConfig = computed(() => {
 
 const presetOptions = computed(() => {
   const options = []
-  const defaultPresetLabel = CHUNK_PRESET_LABEL_MAP[props.databasePresetId] || 'General'
+  const defaultPresetLabel =
+    chunkPresetLabelMap.value[props.databasePresetId] ||
+    props.databasePresetId ||
+    DEFAULT_CHUNK_PRESET_ID
 
   if (props.allowPresetFollowDefault) {
     options.push({
@@ -137,15 +144,19 @@ const presetOptions = computed(() => {
     })
   }
 
-  options.push(...CHUNK_PRESET_OPTIONS.map(({ value, label }) => ({ value, label })))
+  options.push(...chunkPresetSelectOptions.value)
 
   return options
 })
 
 const effectivePresetId = computed(
-  () => props.tempChunkParams.chunk_preset_id || props.databasePresetId || 'general'
+  () => props.tempChunkParams.chunk_preset_id || props.databasePresetId || DEFAULT_CHUNK_PRESET_ID
 )
 const presetDescription = computed(() => getChunkPresetDescription(effectivePresetId.value))
+
+onMounted(() => {
+  loadChunkPresetOptions()
+})
 </script>
 
 <style scoped>

@@ -528,6 +528,14 @@ export const typeApi = {
   },
 
   /**
+   * 获取支持的知识库分块策略
+   * @returns {Promise} - 分块策略列表
+   */
+  getChunkPresets: async () => {
+    return apiAdminGet('/api/knowledge/chunk-presets')
+  },
+
+  /**
    * 获取知识库统计信息
    * @returns {Promise} - 统计信息
    */
