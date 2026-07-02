@@ -77,9 +77,7 @@ export default defineConfig({
       }
     ],
 
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/xerrors/Yuxi' }
-    ],
+    socialLinks: [],
 
     footer: {
       message: '本项目基于 MIT License 开源，欢迎使用和贡献。',
