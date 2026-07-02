@@ -85,7 +85,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { modelProviderApi } from '@/apis/system_api'
 import { RefreshCw } from 'lucide-vue-next'
 import { useModelStatus } from '@/composables/useModelStatus'
@@ -245,10 +245,26 @@ const extractModelName = (spec) => {
   return separatorIndex >= 0 ? spec.slice(separatorIndex + 1) : spec
 }
 
+const findModelBySpec = (spec) => {
+  if (!spec) return null
+  for (const providerData of Object.values(v2Models.value)) {
+    const found = providerData.models?.find((m) => m.spec === spec)
+    if (found) return found
+  }
+  return null
+}
+
 const displayModelText = computed(() => {
   const spec = props.model_spec
   if (!spec) return props.placeholder
 
+  // 优先使用后端返回的展示名，与下拉列表保持一致
+  const model = findModelBySpec(spec)
+  if (model?.display_name) {
+    return model.display_name
+  }
+
+  // 模型列表尚未加载时的降级显示
   const modelName = extractModelName(spec)
   if (props.displayName === 'mini') {
     return modelName.includes('/') ? modelName.split('/').pop() : modelName
@@ -257,7 +273,27 @@ const displayModelText = computed(() => {
   return spec
 })
 
-const displayModelTitle = computed(() => props.model_spec || props.placeholder)
+const displayModelTitle = computed(() => {
+  const spec = props.model_spec
+  if (!spec) return props.placeholder
+  const model = findModelBySpec(spec)
+  if (model?.display_name && model.display_name !== spec) {
+    return `${model.display_name} (${spec})`
+  }
+  return spec
+})
+
+// 当已选模型已知但模型列表尚未加载时，后台静默拉取一次，
+// 以便选择器按钮能尽快显示 display_name 而不是 raw spec。
+watch(
+  () => props.model_spec,
+  (spec) => {
+    if (spec && Object.keys(v2Models.value).length === 0 && !fetchV2ModelsPromise) {
+      fetchV2Models()
+    }
+  },
+  { immediate: true }
+)
 
 // 检查当前模型状态
 const checkCurrentModelStatus = async () => {
