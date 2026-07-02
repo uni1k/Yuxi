@@ -337,12 +337,12 @@ const handleSelectV2Model = (spec) => {
 
 .model-select--nano {
   max-width: 100%;
-  height: 30px;
+  min-height: 30px;
   padding: 6px 8px;
   border: none;
   border-radius: 8px;
   font-size: 13px;
-  line-height: 1;
+  line-height: 1.25;
   color: var(--gray-600);
   background: transparent;
   transition: all 0.2s ease;
