@@ -80,13 +80,8 @@ export default defineConfig({
     socialLinks: [],
 
     footer: {
-      message: '本项目基于 MIT License 开源，欢迎使用和贡献。',
-      copyright: 'Copyright © 2025-present Yuxi'
-    },
-
-    editLink: {
-      pattern: 'https://github.com/xerrors/Yuxi/edit/main/docs/:path',
-      text: '在 GitHub 上编辑此页'
+      message: '智能知识服务平台使用文档',
+      copyright: '智能知识服务平台'
     },
 
     lastUpdated: {
