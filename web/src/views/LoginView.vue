@@ -805,8 +805,11 @@ onUnmounted(() => {
 }
 
 .login-card.no-image {
-  width: 520px;
+  width: auto;
   height: auto;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .form-wrapper {
