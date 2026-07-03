@@ -806,6 +806,7 @@ onUnmounted(() => {
 
 .login-card.no-image {
   width: 520px;
+  height: auto;
 }
 
 .form-wrapper {
