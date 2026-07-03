@@ -30,9 +30,9 @@
 
     <!-- 主要内容区：居中卡片 -->
     <main class="login-main">
-      <div class="login-card">
+      <div class="login-card" :class="{ 'no-image': !loginBgImage }">
         <!-- 左侧图片 -->
-        <div class="card-side is-image">
+        <div v-if="loginBgImage" class="card-side is-image">
           <img :src="loginBgImage" alt="登录背景" class="login-bg-image" />
         </div>
 
@@ -299,7 +299,7 @@ const agentStore = useAgentStore()
 
 // 品牌展示数据
 const loginBgImage = computed(() => {
-  return infoStore.organization?.login_bg || '/login-bg.jpg'
+  return infoStore.organization?.login_bg || ''
 })
 const brandLogo = computed(() => {
   return infoStore.organization?.logo || ''
@@ -802,6 +802,10 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 40px;
+}
+
+.login-card.no-image {
+  width: 520px;
 }
 
 .form-wrapper {

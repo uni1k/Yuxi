@@ -28,6 +28,7 @@
       <header class="glass-header">
         <div class="logo">
           <img
+            v-if="infoStore.organization.logo"
             :src="infoStore.organization.logo"
             :alt="infoStore.organization.name"
             class="logo-img"
@@ -155,7 +156,7 @@
       <footer class="footer">
         <div class="footer-content">
           <p class="copyright">
-            {{ infoStore.footer?.copyright || '© 2025 All rights reserved' }}
+            &copy; {{ new Date().getFullYear() }} {{ brandName }}. All Rights Reserved.
           </p>
         </div>
       </footer>
@@ -183,6 +184,14 @@ const userStore = useUserStore()
 const infoStore = useInfoStore()
 const docsUrl = computed(() => infoStore.links?.docs_url?.trim() || '')
 const docsLabel = computed(() => infoStore.links?.docs_label?.trim() || '查看文档')
+const brandName = computed(() => {
+  const orgName = infoStore.organization?.name?.trim() || ''
+  const brandNameRaw = infoStore.branding?.name?.trim() || '智能平台'
+  if (orgName && brandNameRaw && orgName !== brandNameRaw) {
+    return brandNameRaw
+  }
+  return orgName || brandNameRaw
+})
 
 // 加载状态
 const isLoading = ref(true)
