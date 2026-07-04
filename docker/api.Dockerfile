@@ -30,7 +30,9 @@ RUN set -ex \
     && apt-get update \
     && apt-get install -y --no-install-recommends --fix-missing \
         build-essential \
+        ca-certificates-java \
         curl \
+        default-jre \
         ffmpeg \
         fonts-liberation \
         fonts-noto-cjk \
@@ -40,7 +42,9 @@ RUN set -ex \
         libpq5 \
         libsm6 \
         libxext6 \
+        libreoffice-calc-nogui \
         libreoffice-impress-nogui \
+        libreoffice-java-common \
         libreoffice-writer-nogui \
         python3-dev \
     # (D) 清理垃圾，减小体积
