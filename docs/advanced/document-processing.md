@@ -12,7 +12,7 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 | Word / WPS | .docx, .doc, .docm, .wps | `.docx` 直接解析；`.doc`/`.docm`/`.wps` 会先转换为可解析格式 |
 | PowerPoint | .pptx | 保留主要文本结构 |
 | PDF / OFD | .pdf, .ofd | `.ofd` 会先转换为 PDF，支持文本和图片 PDF |
-| 表格 | .csv, .xls, .xlsx | `.xlsx`/`.csv` 直接解析；`.xls` 会先转换为 `.xlsx` |
+| 表格 | .csv, .xls, .xlsx, .et | `.xlsx`/`.csv` 直接解析；`.xls`/`.et` 会先转换为 `.xlsx` |
 | JSON | .json | 结构化数据 |
 
 ### 图片文件
@@ -21,7 +21,7 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 - .jpg, .jpeg, .png, .bmp, .tiff, .tif
 
 ::: tip 旧版 Office 与 OFD 转换依赖
-`.doc`、`.docm`、`.wps`、`.xls` 解析依赖运行环境中可用的 LibreOffice/soffice；`.ofd` 解析默认使用 `easyofd` 转换为 PDF，也可通过 `YUXI_OFD_TO_PDF_COMMAND` 指定外部转换命令（按 `<command> <input.ofd> <output.pdf>` 形式调用）。转换后的文件会继续复用现有的 DOCX/XLSX/PDF 解析流程。
+`.doc`、`.docm`、`.wps`、`.xls`、`.et` 解析依赖运行环境中可用的 LibreOffice/soffice；`.ofd` 解析默认使用 `easyofd` 转换为 PDF，也可通过 `YUXI_OFD_TO_PDF_COMMAND` 指定外部转换命令（按 `<command> <input.ofd> <output.pdf>` 形式调用）。转换后的文件会继续复用现有的 DOCX/XLSX/PDF 解析流程。
 :::
 
 ### 压缩包

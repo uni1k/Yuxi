@@ -37,6 +37,7 @@ SUPPORTED_FILE_EXTENSIONS: tuple[str, ...] = (
     ".csv",
     ".xls",
     ".xlsx",
+    ".et",
     ".pdf",
     ".pptx",
     ".jpg",

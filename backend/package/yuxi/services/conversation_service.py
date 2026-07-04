@@ -28,7 +28,7 @@ MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
 MAX_ATTACHMENT_MARKDOWN_CHARS = 32_000  # TODO: 转 MARKDOWN的时候，不应该裁剪
 TMP_ATTACHMENT_PREFIX = "tmp/chat_attachments"
 TMP_ATTACHMENT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
-TMP_ATTACHMENT_DOCUMENT_EXTENSIONS = (".pdf", ".doc", ".wps", ".ofd", ".xls", ".xlsx")
+TMP_ATTACHMENT_DOCUMENT_EXTENSIONS = (".pdf", ".doc", ".wps", ".ofd", ".xls", ".xlsx", ".et")
 TMP_ATTACHMENT_PARSE_EXTENSIONS = (*TMP_ATTACHMENT_DOCUMENT_EXTENSIONS, *TMP_ATTACHMENT_IMAGE_EXTENSIONS)
 TMP_ATTACHMENT_OCR_METHODS = tuple(DocumentProcessorFactory.get_available_processors())
 TMP_ATTACHMENT_PARSE_METHODS = ("disable", *TMP_ATTACHMENT_OCR_METHODS)
@@ -123,7 +123,7 @@ def _make_attachment_path(file_name: str) -> str:
     file_name = _safe_file_name(file_name)
     # 提取不带扩展名的部分
     base_name = file_name
-    for ext in [".docx", ".doc", ".wps", ".ofd", ".txt", ".html", ".htm", ".pdf", ".md"]:
+    for ext in [".docx", ".doc", ".wps", ".ofd", ".xls", ".xlsx", ".et", ".txt", ".html", ".htm", ".pdf", ".md"]:
         if file_name.lower().endswith(ext):
             base_name = file_name[: -len(ext)]
             break

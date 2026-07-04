@@ -519,7 +519,8 @@ const DEFAULT_SUPPORTED_TYPES = [
   '.wps',
   '.ofd',
   '.xls',
-  '.xlsx'
+  '.xlsx',
+  '.et'
 ]
 
 const normalizeExtensions = (extensions) => {

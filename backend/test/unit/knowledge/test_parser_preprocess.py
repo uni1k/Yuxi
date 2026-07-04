@@ -72,6 +72,23 @@ def test_normalize_file_for_parsing_converts_xls_with_libreoffice(
         assert normalized_path.suffix == ".xlsx"
 
 
+def test_normalize_file_for_parsing_converts_et_with_libreoffice(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source_path = tmp_path / "wps_table.et"
+    source_path.write_bytes(b"fake et")
+
+    def fake_which(command: str):
+        return "/usr/bin/soffice" if command == "soffice" else None
+
+    monkeypatch.setattr(preprocess.shutil, "which", fake_which)
+    monkeypatch.setattr(preprocess.subprocess, "run", _make_fake_libreoffice_run("xlsx", "xlsx"))
+
+    with preprocess.normalize_file_for_parsing(source_path) as normalized_path:
+        assert normalized_path.suffix == ".xlsx"
+
+
 def test_normalize_file_for_parsing_converts_ofd_with_configured_converter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

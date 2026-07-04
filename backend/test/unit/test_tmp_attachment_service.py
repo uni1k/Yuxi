@@ -115,7 +115,7 @@ async def test_upload_tmp_attachment_marks_convertible_documents_parse_supported
     fake_minio = FakeMinioClient()
     monkeypatch.setattr(service, "get_minio_client", lambda: fake_minio)
 
-    for file_name in ["demo.doc", "demo.wps", "demo.ofd", "demo.xls"]:
+    for file_name in ["demo.doc", "demo.wps", "demo.ofd", "demo.xls", "demo.et"]:
         response = await service.upload_tmp_attachment_view(
             file=FakeUpload(file_name, b"document-bytes", "application/octet-stream"),
             current_uid="user-1",

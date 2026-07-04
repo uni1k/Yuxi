@@ -10,7 +10,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".docm", ".wps", ".xls", ".ofd")
+CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".docm", ".wps", ".xls", ".et", ".ofd")
 LIBREOFFICE_COMMANDS: tuple[str, ...] = ("soffice", "libreoffice")
 DEFAULT_CONVERT_TIMEOUT_SECONDS = 120
 
@@ -20,6 +20,7 @@ OFFICE_TARGET_FORMATS: dict[str, tuple[str, ...]] = {
     ".docm": ("docx",),
     ".wps": ("docx", "pdf"),
     ".xls": ("xlsx",),
+    ".et": ("xlsx",),
 }
 
 try:
