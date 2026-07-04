@@ -66,7 +66,7 @@
           </div>
           <div class="col-item" v-if="uploadMode !== 'url'">
             <div class="setting-label">
-              OCR 引擎（仅应用于 PDF/图片文件）
+              OCR 引擎（仅应用于 PDF/OFD/图片文件）
               <a-tooltip title="检查服务状态">
                 <ReloadOutlined
                   class="action-icon refresh-icon"
@@ -173,10 +173,10 @@
         </div>
       </div>
 
-      <!-- PDF/图片OCR提醒 (Alert样式优化) -->
+      <!-- PDF/OFD/图片OCR提醒 (Alert样式优化) -->
       <div v-if="hasPdfOrImageFiles && !isOcrEnabled" class="inline-alert warning">
         <Info :size="16" />
-        <span>检测到PDF或图片文件，建议启用 OCR 以提取文本内容</span>
+        <span>检测到 PDF、OFD 或图片文件，建议启用 OCR 以提取文本内容</span>
       </div>
 
       <!-- 文件上传区域 -->
@@ -503,7 +503,19 @@ watch(
   }
 )
 
-const DEFAULT_SUPPORTED_TYPES = ['.txt', '.pdf', '.jpg', '.jpeg', '.md', '.docx']
+const DEFAULT_SUPPORTED_TYPES = [
+  '.txt',
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.md',
+  '.docx',
+  '.doc',
+  '.wps',
+  '.ofd',
+  '.xls',
+  '.xlsx'
+]
 
 const normalizeExtensions = (extensions) => {
   if (!Array.isArray(extensions)) {
@@ -926,13 +938,13 @@ const isOcrEnabled = computed(() => {
 
 // 上传模式切换相关逻辑已移除
 
-// 计算属性：是否有PDF或图片文件
+// 计算属性：是否有 PDF/OFD 或图片文件
 const hasPdfOrImageFiles = computed(() => {
   if (fileList.value.length === 0) {
     return false
   }
 
-  const pdfExtensions = ['.pdf']
+  const pdfExtensions = ['.pdf', '.ofd']
   const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp']
   const ocrExtensions = [...pdfExtensions, ...imageExtensions]
 

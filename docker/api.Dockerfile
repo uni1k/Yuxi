@@ -29,6 +29,7 @@ RUN set -ex \
     # (C) 安装必要的系统库
     && apt-get update \
     && apt-get install -y --no-install-recommends --fix-missing \
+        build-essential \
         curl \
         ffmpeg \
         fonts-liberation \
@@ -39,9 +40,15 @@ RUN set -ex \
         libxext6 \
         libreoffice-impress-nogui \
         libreoffice-writer-nogui \
+        python3-dev \
     # (D) 清理垃圾，减小体积
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# 安装 OFD 转 PDF 工具（aarch64 上可能需要从源码构建，故保留 build-essential/python3-dev）
+# 若 ofd2pdf 在 PyPI 上无 aarch64 wheel，需替换为其他安装方式或改用 YUXI_OFD_TO_PDF_COMMAND
+RUN pip install --no-cache-dir ofd2pdf \
+    && which ofd2pdf
 
 # 复制项目配置文件
 COPY ../backend/pyproject.toml /app/pyproject.toml

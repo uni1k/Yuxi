@@ -111,6 +111,21 @@ async def test_upload_tmp_attachment_writes_user_scoped_minio_object(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_upload_tmp_attachment_marks_convertible_documents_parse_supported(monkeypatch):
+    fake_minio = FakeMinioClient()
+    monkeypatch.setattr(service, "get_minio_client", lambda: fake_minio)
+
+    for file_name in ["demo.doc", "demo.wps", "demo.ofd", "demo.xls"]:
+        response = await service.upload_tmp_attachment_view(
+            file=FakeUpload(file_name, b"document-bytes", "application/octet-stream"),
+            current_uid="user-1",
+        )
+
+        assert response["parse_supported"] is True
+        assert response["parse_methods"][0] == "disable"
+
+
+@pytest.mark.asyncio
 async def test_parse_tmp_attachment_uses_selected_method_and_uploads_markdown(monkeypatch):
     fake_minio = FakeMinioClient()
     object_name = "tmp/chat_attachments/user-1/tmp-1/original/demo.pdf"
@@ -219,7 +234,7 @@ async def test_parse_tmp_attachment_uses_object_name_for_type_validation(monkeyp
         )
 
     assert exc_info.value.status_code == 400
-    assert "PDF 和图片" in exc_info.value.detail
+    assert "PDF、图片、Word/WPS/OFD/Excel" in exc_info.value.detail
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -19,13 +20,17 @@ from langchain_community.document_loaders import PyPDFLoader
 from markdownify import markdownify as md_convert
 
 from yuxi.knowledge.parser.zip_utils import process_zip_file as _process_zip_file
+from yuxi.knowledge.parser.preprocess import normalize_file_for_parsing
 from yuxi.storage.minio import get_minio_client
 from yuxi.utils import logger
 
 SUPPORTED_FILE_EXTENSIONS: tuple[str, ...] = (
     ".txt",
     ".md",
+    ".doc",
     ".docx",
+    ".wps",
+    ".ofd",
     ".html",
     ".htm",
     ".json",
@@ -313,8 +318,9 @@ async def _process_file_to_markdown_core(
     file_ext: str | None = None
     artifacts: dict[str, Any] = {}
 
+    preprocess_stack = ExitStack()
     try:
-        file_path_obj = Path(actual_file_path)
+        file_path_obj = Path(preprocess_stack.enter_context(normalize_file_for_parsing(actual_file_path)))
         file_ext = file_path_obj.suffix.lower()
 
         if file_ext == ".pdf":
@@ -408,6 +414,7 @@ async def _process_file_to_markdown_core(
         raise
 
     finally:
+        preprocess_stack.close()
         if is_minio_url(file_path) and os.path.exists(actual_file_path):
             try:
                 os.unlink(actual_file_path)

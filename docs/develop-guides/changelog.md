@@ -8,6 +8,7 @@
 
 ### 开发记录
 
+- 扩展知识库与对话附件文档解析格式：新增 `.doc`、`.wps`、`.ofd` 上传识别支持，并补齐对话附件 `.xls/.xlsx` 解析入口；旧版 Office/WPS 文件先经 LibreOffice/soffice 归一为 DOCX/PDF，OFD 文件经 `YUXI_OFD_TO_PDF_COMMAND` 或 `ofd2pdf` 归一为 PDF，再复用既有解析与 OCR 链路，Excel 文件继续复用既有 Docling 表格解析。
 - 收敛默认品牌露出：前端运行时界面移除 GitHub 入口、Star 引导、首页 GitHub 实时统计与外链文案；同时将 CLI 名称、文档链接、帮助链接收口到 `info.template.yaml` 的 `branding.cli_name` 与 `links.*` 配置，登录页/首页/用户菜单按配置决定是否展示，方便私有化部署时做最小品牌去露出。
 - 新增 PaddleOCR 云端 API OCR 解析器：支持 `paddleocr_vl_1_6` 调用 `PaddleOCR-VL-1.6` 输出版面 Markdown，支持 `paddleocr_pp_ocrv6` 调用 `PP-OCRv6` 输出纯 OCR 文本；解析器复用 PaddleOCR jobs 提交、轮询与 JSONL 下载逻辑，健康检查仅校验 `PADDLEOCR_API_TOKEN` 配置状态，不创建真实 OCR 任务；知识库上传与临时附件解析弹窗同步增加两个 OCR 选项。
 - 优化对话消息代码块交互：助手消息中的 Markdown 代码块右上角新增简约复制按钮，支持点击快速复制代码内容并显示短暂“已复制”反馈。

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -63,6 +64,34 @@ def test_parser_parse_docx_file_returns_markdown_text(tmp_path: Path, monkeypatc
     assert isinstance(markdown, str)
     assert "Parser DOCX content" in markdown
     assert len(markdown.strip()) > 0
+
+
+def test_supported_file_extensions_include_legacy_office_and_ofd():
+    assert parser_unified.is_supported_file_extension("demo.doc")
+    assert parser_unified.is_supported_file_extension("demo.wps")
+    assert parser_unified.is_supported_file_extension("demo.ofd")
+
+
+def test_parser_reuses_docx_path_after_wps_preprocess(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source_path = tmp_path / "parser_test.wps"
+    source_path.write_bytes(b"fake wps")
+    converted_path = tmp_path / "parser_test.docx"
+    _build_docx(converted_path, "Parser WPS content")
+
+    @contextmanager
+    def fake_normalize_file_for_parsing(file_path: str):
+        assert Path(file_path) == source_path
+        yield converted_path
+
+    def _raise_docling_error(*args, **kwargs):
+        raise RuntimeError("force fallback to python-docx")
+
+    monkeypatch.setattr(parser_unified, "normalize_file_for_parsing", fake_normalize_file_for_parsing)
+    monkeypatch.setattr(parser_unified, "_convert_with_docling", _raise_docling_error)
+
+    markdown = Parser.parse(str(source_path))
+
+    assert "Parser WPS content" in markdown
 
 
 def test_convert_with_docling_reinserts_image_links_in_document_order(

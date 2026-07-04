@@ -27,8 +27,9 @@ ATTACHMENT_ALLOWED_EXTENSIONS: tuple[str, ...] = ()
 MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
 MAX_ATTACHMENT_MARKDOWN_CHARS = 32_000  # TODO: 转 MARKDOWN的时候，不应该裁剪
 TMP_ATTACHMENT_PREFIX = "tmp/chat_attachments"
-TMP_ATTACHMENT_PARSE_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
 TMP_ATTACHMENT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
+TMP_ATTACHMENT_DOCUMENT_EXTENSIONS = (".pdf", ".doc", ".wps", ".ofd", ".xls", ".xlsx")
+TMP_ATTACHMENT_PARSE_EXTENSIONS = (*TMP_ATTACHMENT_DOCUMENT_EXTENSIONS, *TMP_ATTACHMENT_IMAGE_EXTENSIONS)
 TMP_ATTACHMENT_OCR_METHODS = tuple(DocumentProcessorFactory.get_available_processors())
 TMP_ATTACHMENT_PARSE_METHODS = ("disable", *TMP_ATTACHMENT_OCR_METHODS)
 
@@ -122,7 +123,7 @@ def _make_attachment_path(file_name: str) -> str:
     file_name = _safe_file_name(file_name)
     # 提取不带扩展名的部分
     base_name = file_name
-    for ext in [".docx", ".txt", ".html", ".htm", ".pdf", ".md"]:
+    for ext in [".docx", ".doc", ".wps", ".ofd", ".txt", ".html", ".htm", ".pdf", ".md"]:
         if file_name.lower().endswith(ext):
             base_name = file_name[: -len(ext)]
             break
@@ -204,7 +205,7 @@ def _require_tmp_object_section(
 def _normalize_parse_method(file_name: str, parse_method: str | None) -> str:
     suffix = Path(file_name).suffix.lower()
     if suffix not in TMP_ATTACHMENT_PARSE_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="当前仅支持 PDF 和图片附件解析")
+        raise HTTPException(status_code=400, detail="当前仅支持 PDF、图片、Word/WPS/OFD/Excel 附件解析")
 
     method = parse_method or ("rapid_ocr" if suffix in TMP_ATTACHMENT_IMAGE_EXTENSIONS else "disable")
     if suffix in TMP_ATTACHMENT_IMAGE_EXTENSIONS:
@@ -596,7 +597,7 @@ async def upload_tmp_attachment_view(*, file: UploadFile, current_uid: str) -> d
         raise HTTPException(status_code=500, detail=f"临时附件上传失败: {exc}") from exc
 
     suffix = Path(file_name).suffix.lower()
-    if suffix == ".pdf":
+    if suffix in TMP_ATTACHMENT_DOCUMENT_EXTENSIONS:
         parse_methods = list(TMP_ATTACHMENT_PARSE_METHODS)
     elif suffix in TMP_ATTACHMENT_IMAGE_EXTENSIONS:
         parse_methods = list(TMP_ATTACHMENT_OCR_METHODS)
