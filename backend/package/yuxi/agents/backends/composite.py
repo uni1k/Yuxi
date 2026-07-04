@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 from deepagents.backends.composite import (
     CompositeBackend,
@@ -10,6 +13,7 @@ from deepagents.backends.composite import (
 )
 from deepagents.backends.protocol import FileInfo, GlobResult
 from deepagents.middleware.filesystem import FilesystemMiddleware
+from langchain_core.messages import ToolMessage
 
 from yuxi.agents.skills.service import normalize_string_list
 from yuxi.utils.paths import VIRTUAL_PATH_CONVERSATION_HISTORY, VIRTUAL_PATH_LARGE_TOOL_RESULTS, VIRTUAL_PATH_OUTPUTS
@@ -18,6 +22,12 @@ from .sandbox import ProvisionerSandboxBackend
 from .skills_backend import SelectedSkillsReadonlyBackend
 
 _TOOL_RESULT_EVICTION_EXEMPT_TOOLS = frozenset({"read_file", "open_kb_document"})
+_PARSER_DOCUMENT_EXTENSIONS = frozenset(
+    {
+        ".csv", ".doc", ".docm", ".docx", ".et", ".htm", ".html", ".json",
+        ".md", ".ofd", ".pdf", ".pptx", ".txt", ".wps", ".xls", ".xlsx",
+    }
+)
 
 
 def _coerce_glob_result(result) -> GlobResult:
@@ -94,6 +104,8 @@ class YuxiFilesystemMiddleware(FilesystemMiddleware):
     def wrap_tool_call(self, request, handler):
         tool_result = handler(request)
 
+        tool_result = self._parse_read_file_document_result(request, tool_result)
+
         if self._tool_token_limit_before_evict is None:
             return tool_result
         if request.tool_call["name"] in _TOOL_RESULT_EVICTION_EXEMPT_TOOLS:
@@ -104,12 +116,87 @@ class YuxiFilesystemMiddleware(FilesystemMiddleware):
     async def awrap_tool_call(self, request, handler):
         tool_result = await handler(request)
 
+        tool_result = await self._aparse_read_file_document_result(request, tool_result)
+
         if self._tool_token_limit_before_evict is None:
             return tool_result
         if request.tool_call["name"] in _TOOL_RESULT_EVICTION_EXEMPT_TOOLS:
             return tool_result
 
         return await self._aintercept_large_tool_result(tool_result, request.runtime)
+
+    @staticmethod
+    def _read_file_path_from_result(result: ToolMessage) -> str | None:
+        path = result.additional_kwargs.get("read_file_path")
+        return path if isinstance(path, str) and path else None
+
+    @staticmethod
+    def _read_file_base64_block(result: ToolMessage) -> dict | None:
+        blocks = result.content_blocks
+        if len(blocks) != 1:
+            return None
+        block = blocks[0]
+        if block.get("type") != "file":
+            return None
+        content = block.get("base64")
+        return block if isinstance(content, str) and content else None
+
+    @staticmethod
+    def _temporary_document_path(file_path: str, base64_content: str) -> Path:
+        suffix = Path(file_path).suffix.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(base64.b64decode(base64_content, validate=True))
+            return Path(tmp_file.name)
+
+    @staticmethod
+    def _document_tool_message(result: ToolMessage, markdown: str) -> ToolMessage:
+        return ToolMessage(
+            content=markdown,
+            name=result.name,
+            tool_call_id=result.tool_call_id,
+            status=result.status,
+            additional_kwargs={**result.additional_kwargs, "read_file_parsed_as_markdown": True},
+        )
+
+    def _parse_read_file_document_result(self, request, tool_result):
+        if request.tool_call["name"] != "read_file" or not isinstance(tool_result, ToolMessage):
+            return tool_result
+
+        file_path = self._read_file_path_from_result(tool_result)
+        if file_path is None or Path(file_path).suffix.lower() not in _PARSER_DOCUMENT_EXTENSIONS:
+            return tool_result
+
+        block = self._read_file_base64_block(tool_result)
+        if block is None:
+            return tool_result
+
+        tmp_path = self._temporary_document_path(file_path, block["base64"])
+        try:
+            from yuxi.knowledge.parser.unified import Parser
+
+            return self._document_tool_message(tool_result, Parser.parse(str(tmp_path)))
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    async def _aparse_read_file_document_result(self, request, tool_result):
+        if request.tool_call["name"] != "read_file" or not isinstance(tool_result, ToolMessage):
+            return tool_result
+
+        file_path = self._read_file_path_from_result(tool_result)
+        if file_path is None or Path(file_path).suffix.lower() not in _PARSER_DOCUMENT_EXTENSIONS:
+            return tool_result
+
+        block = self._read_file_base64_block(tool_result)
+        if block is None:
+            return tool_result
+
+        tmp_path = self._temporary_document_path(file_path, block["base64"])
+        try:
+            from yuxi.knowledge.parser.unified import Parser
+
+            return self._document_tool_message(tool_result, await Parser.aparse(str(tmp_path)))
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
