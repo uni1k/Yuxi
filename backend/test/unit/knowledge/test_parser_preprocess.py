@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +9,20 @@ import pytest
 from yuxi.knowledge.parser import preprocess
 
 pytestmark = pytest.mark.unit
+
+
+def _write_macro_enabled_docx(path: Path) -> None:
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.ms-word.document.macroEnabled.main+xml"/>'
+        '</Types>'
+    )
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("[Content_Types].xml", content_types)
+        zf.writestr("word/document.xml", "<w:document/>\n")
 
 
 def _make_fake_libreoffice_run(expected_format: str, output_suffix: str):
@@ -44,6 +59,23 @@ def test_normalize_file_for_parsing_converts_docm_with_libreoffice(
 ):
     source_path = tmp_path / "macro.docm"
     source_path.write_bytes(b"fake docm")
+
+    def fake_which(command: str):
+        return "/usr/bin/soffice" if command == "soffice" else None
+
+    monkeypatch.setattr(preprocess.shutil, "which", fake_which)
+    monkeypatch.setattr(preprocess.subprocess, "run", _make_fake_libreoffice_run("docx", "docx"))
+
+    with preprocess.normalize_file_for_parsing(source_path) as normalized_path:
+        assert normalized_path.suffix == ".docx"
+
+
+def test_normalize_file_for_parsing_detects_macro_enabled_docx_disguised_as_docx(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source_path = tmp_path / "disguised.docx"
+    _write_macro_enabled_docx(source_path)
 
     def fake_which(command: str):
         return "/usr/bin/soffice" if command == "soffice" else None

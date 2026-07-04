@@ -33,22 +33,43 @@ class DocumentPreprocessError(RuntimeError):
     pass
 
 
+def _is_macro_enabled_docx(source_path: Path) -> bool:
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(source_path, "r") as zf:
+            content_types = zf.read("[Content_Types].xml").decode("utf-8", errors="ignore")
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return False
+    return "application/vnd.ms-word.document.macroEnabled.main+xml" in content_types
+
+
 @contextmanager
 def normalize_file_for_parsing(file_path: str | os.PathLike[str]) -> Iterator[Path]:
     source_path = Path(file_path)
-    file_ext = source_path.suffix.lower()
-    if file_ext not in CONVERTIBLE_FILE_EXTENSIONS:
+    actual_ext = source_path.suffix.lower()
+
+    if actual_ext == ".docx" and _is_macro_enabled_docx(source_path):
+        actual_ext = ".docm"
+
+    if actual_ext not in CONVERTIBLE_FILE_EXTENSIONS:
         yield source_path
         return
 
     with tempfile.TemporaryDirectory(prefix="yuxi-parser-preprocess-") as temp_dir:
         output_dir = Path(temp_dir)
-        if file_ext in OFFICE_TARGET_FORMATS:
-            converted_path = _convert_office_document(source_path, output_dir)
-        elif file_ext == ".ofd":
-            converted_path = _convert_ofd_document(source_path, output_dir)
+        work_path = source_path
+
+        if actual_ext == ".docm" and source_path.suffix.lower() != ".docm":
+            work_path = output_dir / f"{source_path.stem}.docm"
+            shutil.copy2(source_path, work_path)
+
+        if actual_ext in OFFICE_TARGET_FORMATS:
+            converted_path = _convert_office_document(work_path, output_dir)
+        elif actual_ext == ".ofd":
+            converted_path = _convert_ofd_document(work_path, output_dir)
         else:
-            raise DocumentPreprocessError(f"不支持的预处理文件类型: {file_ext}")
+            raise DocumentPreprocessError(f"不支持的预处理文件类型: {actual_ext}")
 
         yield converted_path
 
