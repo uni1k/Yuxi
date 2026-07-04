@@ -34,6 +34,8 @@ RUN set -ex \
         ffmpeg \
         fonts-liberation \
         fonts-noto-cjk \
+        fonts-wqy-zenhei \
+        fonts-wqy-microhei \
         git \
         libpq5 \
         libsm6 \
