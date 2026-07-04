@@ -204,6 +204,25 @@ def _convert_docx_with_python_docx(file_path: Path) -> str:
     return "\n\n".join(blocks).strip()
 
 
+def _convert_table_with_pandas(file_path: Path) -> str:
+    """使用 pandas 将 CSV/Excel 转为 Markdown 表格（Docling 失败时兜底）。"""
+    import pandas as pd
+
+    suffix = file_path.suffix.lower()
+    if suffix == ".csv":
+        df = pd.read_csv(file_path)
+    else:
+        df = pd.read_excel(file_path)
+
+    markdown_content = ""
+    for _, row in df.iterrows():
+        row_df = pd.DataFrame([row], columns=df.columns)
+        markdown_table = row_df.to_markdown(index=False)
+        markdown_content += f"{markdown_table}\n\n"
+
+    return markdown_content.strip()
+
+
 def pdfreader(file_path, params=None):
     """读取 PDF 文件并返回 text 文本。"""
     if isinstance(file_path, str):
@@ -345,13 +364,6 @@ async def _process_file_to_markdown_core(
         elif file_ext == ".pptx":
             result = _convert_with_docling(file_path_obj, params=params)
 
-        elif file_ext == ".doc":
-            from langchain_community.document_loaders import UnstructuredWordDocumentLoader
-
-            loader = UnstructuredWordDocumentLoader(str(file_path_obj))
-            docs = loader.load()
-            result = "\n".join(doc.page_content for doc in docs).strip()
-
         elif file_ext in [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"]:
             text = await parse_image_async(str(file_path_obj), params=params)
             result = f"{text}"
@@ -363,20 +375,14 @@ async def _process_file_to_markdown_core(
             result = f"{text}"
 
         elif file_ext == ".csv":
-            import pandas as pd
-
-            df = pd.read_csv(file_path_obj)
-            markdown_content = ""
-
-            for _, row in df.iterrows():
-                row_df = pd.DataFrame([row], columns=df.columns)
-                markdown_table = row_df.to_markdown(index=False)
-                markdown_content += f"{markdown_table}\n\n"
-
-            result = markdown_content.strip()
+            result = _convert_table_with_pandas(file_path_obj)
 
         elif file_ext in [".xls", ".xlsx"]:
-            result = _convert_with_docling(file_path_obj, params=params)
+            try:
+                result = _convert_with_docling(file_path_obj, params=params)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Docling 解析 Excel 失败，回退到 pandas: {file_path_obj.name}, {e}")
+                result = _convert_table_with_pandas(file_path_obj)
 
         elif file_ext == ".json":
             import json

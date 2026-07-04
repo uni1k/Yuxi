@@ -10,9 +10,17 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".wps", ".ofd")
+CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".docm", ".wps", ".xls", ".ofd")
 LIBREOFFICE_COMMANDS: tuple[str, ...] = ("soffice", "libreoffice")
 DEFAULT_CONVERT_TIMEOUT_SECONDS = 120
+
+# 每种异构格式允许转换成的目标格式（按优先级排列）
+OFFICE_TARGET_FORMATS: dict[str, tuple[str, ...]] = {
+    ".doc": ("docx", "pdf"),
+    ".docm": ("docx",),
+    ".wps": ("docx", "pdf"),
+    ".xls": ("xlsx",),
+}
 
 try:
     from easyofd.ofd import OFD as _EasyOFD
@@ -34,7 +42,7 @@ def normalize_file_for_parsing(file_path: str | os.PathLike[str]) -> Iterator[Pa
 
     with tempfile.TemporaryDirectory(prefix="yuxi-parser-preprocess-") as temp_dir:
         output_dir = Path(temp_dir)
-        if file_ext in {".doc", ".wps"}:
+        if file_ext in OFFICE_TARGET_FORMATS:
             converted_path = _convert_office_document(source_path, output_dir)
         elif file_ext == ".ofd":
             converted_path = _convert_ofd_document(source_path, output_dir)
@@ -47,10 +55,13 @@ def normalize_file_for_parsing(file_path: str | os.PathLike[str]) -> Iterator[Pa
 def _convert_office_document(source_path: Path, output_dir: Path) -> Path:
     office_command = _find_libreoffice_command()
     if office_command is None:
-        raise DocumentPreprocessError("解析 .doc/.wps 文件需要安装 LibreOffice 或 soffice 命令")
+        raise DocumentPreprocessError("解析 Office 文件需要安装 LibreOffice 或 soffice 命令")
+
+    file_ext = source_path.suffix.lower()
+    target_formats = OFFICE_TARGET_FORMATS.get(file_ext, ("docx", "pdf"))
 
     last_error = ""
-    for target_format in ("docx", "pdf"):
+    for target_format in target_formats:
         converted_path, error = _run_libreoffice_convert(
             command=office_command,
             source_path=source_path,
