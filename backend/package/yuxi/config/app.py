@@ -10,7 +10,7 @@ import tomli
 import tomli_w
 from pydantic import BaseModel, Field, PrivateAttr
 
-from yuxi.config import cache as runtime_cache
+from . import cache as runtime_cache
 from yuxi.utils.logging_config import logger
 
 READONLY_CONFIG_FIELDS = frozenset({"save_dir"})
