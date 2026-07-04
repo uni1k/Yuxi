@@ -238,6 +238,12 @@ def pdfreader(file_path, params=None):
     return text
 
 
+def _resolve_fallback_ocr_engine(current_engine: str) -> str | None:
+    if current_engine in {"disable", "rapid_ocr"}:
+        return None
+    return "rapid_ocr"
+
+
 def parse_pdf(file, params=None):
     """解析 PDF 文件，支持多种 OCR 方式。"""
     from yuxi.knowledge.parser.base import DocumentProcessorException
@@ -252,8 +258,20 @@ def parse_pdf(file, params=None):
     processor_params.setdefault("image_bucket", image_bucket)
     processor_params.setdefault("image_prefix", image_prefix)
 
+    def _run_ocr(engine: str) -> str:
+        return DocumentProcessorFactory.process_file(engine, file, processor_params)
+
     try:
-        return DocumentProcessorFactory.process_file(opt_ocr, file, processor_params)
+        result = _run_ocr(opt_ocr)
+        if result and result.strip():
+            return result
+
+        fallback_ocr = _resolve_fallback_ocr_engine(opt_ocr)
+        if fallback_ocr:
+            logger.warning(f"PDF OCR 引擎 {opt_ocr} 返回空文本，回退到 {fallback_ocr}")
+            return _run_ocr(fallback_ocr)
+
+        return result
     except DocumentProcessorException as e:
         logger.error(f"文档处理失败: {e.service_name} - {str(e)}")
         raise

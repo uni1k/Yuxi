@@ -281,6 +281,31 @@ def test_parse_pdf_keeps_explicit_disable_when_default_ocr_enabled(
     assert "Parser PDF content" in result
 
 
+def test_parse_pdf_fallback_to_rapid_ocr_when_primary_returns_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    file_path = tmp_path / "empty.pdf"
+    _build_pdf(file_path, "existing text")
+
+    calls: list[str] = []
+
+    def _fake_process_file(processor_type, file, params=None):
+        calls.append(processor_type)
+        if processor_type == "mineru_ocr":
+            return ""
+        if processor_type == "rapid_ocr":
+            return "rapid ocr fallback content"
+        raise ValueError(f"unexpected processor: {processor_type}")
+
+    monkeypatch.setattr(DocumentProcessorFactory, "process_file", _fake_process_file)
+
+    result = parser_unified.parse_pdf(str(file_path), params={"ocr_engine": "mineru_ocr"})
+
+    assert result == "rapid ocr fallback content"
+    assert calls == ["mineru_ocr", "rapid_ocr"]
+
+
 @pytest.mark.asyncio
 async def test_parser_aparse_image_file_with_mineru_when_available():
     file_path = DATA_DIR / "测试图片.png"
