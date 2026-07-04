@@ -24,7 +24,7 @@ from yuxi.utils.paths import VIRTUAL_PATH_UPLOADS
 from yuxi.utils.upload_utils import read_upload_with_limit, write_upload_to_path
 
 ATTACHMENT_ALLOWED_EXTENSIONS: tuple[str, ...] = ()
-MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_ATTACHMENT_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
 MAX_ATTACHMENT_MARKDOWN_CHARS = 32_000  # TODO: 转 MARKDOWN的时候，不应该裁剪
 TMP_ATTACHMENT_PREFIX = "tmp/chat_attachments"
 TMP_ATTACHMENT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
@@ -57,7 +57,7 @@ async def _write_upload_to_disk(upload: UploadFile, dest: Path) -> int:
         upload,
         dest,
         max_size_bytes=MAX_ATTACHMENT_SIZE_BYTES,
-        too_large_message="附件过大，当前仅支持 5 MB 以内的文件",
+        too_large_message="附件过大，当前仅支持 20 MB 以内的文件",
     )
 
 
@@ -577,7 +577,7 @@ async def upload_tmp_attachment_view(*, file: UploadFile, current_uid: str) -> d
         file_content = await read_upload_with_limit(
             file,
             max_size_bytes=MAX_ATTACHMENT_SIZE_BYTES,
-            too_large_message="附件过大，当前仅支持 5 MB 以内的文件",
+            too_large_message="附件过大，当前仅支持 20 MB 以内的文件",
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
