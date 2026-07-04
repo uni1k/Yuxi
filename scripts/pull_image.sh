@@ -14,7 +14,7 @@ SLASH_COUNT=$(echo $IMAGE_TAG | tr -cd '/' | wc -c)
 
 # Set mirror URL based on image format
 if [ $SLASH_COUNT -eq 0 ]; then
-    # No prefix (e.g., python:3.12-slim)
+    # No prefix (e.g., python:3.13-slim)
     MIRROR_URL="m.daocloud.io/docker.io/library"
 elif [ $SLASH_COUNT -eq 1 ]; then
     # One prefix (e.g., milvusdb/milvus:latest)

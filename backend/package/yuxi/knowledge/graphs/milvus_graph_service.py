@@ -848,7 +848,7 @@ class MilvusGraphService:
             if len(nodes) >= limit:
                 break
 
-        return {"nodes": nodes[:limit], "edges": edges[: limit * 2]}
+        return self._finalize_subgraph_result(nodes, edges, limit)
 
     def _process_subgraph_record(self, record: Any, limit: int, kb_id: str) -> dict[str, Any]:
         nodes = []
@@ -874,7 +874,21 @@ class MilvusGraphService:
             edges.append(edge)
             edge_ids.add(edge["id"])
 
-        return {"nodes": nodes, "edges": edges}
+        return self._finalize_subgraph_result(nodes, edges, limit)
+
+    @staticmethod
+    def _finalize_subgraph_result(
+        nodes: list[dict[str, Any]], edges: list[dict[str, Any]], limit: int
+    ) -> dict[str, Any]:
+        limit = max(0, limit)
+        final_nodes = nodes[:limit]
+        node_ids = {node["id"] for node in final_nodes}
+        final_edges = [
+            edge
+            for edge in edges
+            if edge.get("source_id") in node_ids and edge.get("target_id") in node_ids
+        ]
+        return {"nodes": final_nodes, "edges": final_edges[: limit * 2]}
 
     def _normalize_node(self, raw_node: Any, kb_id: str | None = None) -> dict[str, Any]:
         if hasattr(raw_node, "element_id"):

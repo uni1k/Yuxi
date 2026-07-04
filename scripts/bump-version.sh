@@ -11,6 +11,44 @@ set -euo pipefail
 # 该脚本从 backend/package/pyproject.toml 读取当前版本，
 # 自动同步所有需要硬编码版本号的位置。
 # --dev 模式不会更新 README.md、docs/intro/quick-start.md 和文档首页中 git clone --branch 的版本号。
+#
+# 更新 tag 标准流程（给人工和 agent 使用）:
+#
+# 1. 先判断目标版本，不要直接打 tag。
+#    - 用户给完整版本号时，直接使用该版本，例如 0.7.1.dev2。
+#    - 用户只说“更新到 dev2”时，沿用当前主版本号 x.y.z，目标版本为 x.y.z.dev2。
+#      例如当前是 0.7.1.dev1，则运行: ./scripts/bump-version.sh --dev 0.7.1.dev2
+#    - 用户只说“更新 tag”或“添加 tag”时，先读取 backend/package/pyproject.toml:
+#      * 如果当前是 x.y.z.dev0，默认推断为要发布第一个开发 tag，目标版本是 x.y.z.dev1。
+#      * 如果当前已经是 x.y.z.devN（N >= 1）或 x.y.z，默认给当前版本打 tag。
+#      * 如果上下文里提到 dev2/dev3 等，则按提到的 devN 推断目标版本。
+#
+# 2. 如需升级版本，先运行本脚本。开发版必须带 --dev:
+#    ./scripts/bump-version.sh --dev 0.7.1.dev2
+#    正式版不带 --dev:
+#    ./scripts/bump-version.sh 0.7.1
+#
+# 3. 脚本运行后必须检查:
+#    - git diff，确认只有预期版本文件变化。
+#    - backend/package/pyproject.toml、backend/pyproject.toml、web/package.json、
+#      docker-compose*.yml、backend/*uv.lock 中的 Yuxi 版本一致。
+#    - dev 模式下 README.md、README.en.md、docs/intro/quick-start.md 和文档首页
+#      不应被更新。
+#
+# 4. 必须先提交版本更新，再创建 tag。tag 要指向包含版本更新的提交:
+#    git add backend/package/pyproject.toml backend/package/uv.lock backend/pyproject.toml backend/uv.lock docker-compose.yml docker-compose.prod.yml web/package.json
+#    git commit -m 'chore(release): 升级版本到 0.7.1.dev2'
+#    git tag v0.7.1.dev2
+#
+# 5. 创建 tag 后必须检查:
+#    - git status --short 应为空。
+#    - git show --no-patch --decorate --oneline HEAD 应显示 tag。
+#    - git tag --points-at HEAD 应包含刚创建的 tag。
+#    - 如果 tag 已存在，不要强制覆盖，先停下来确认。
+#
+# 6. 推送时推荐显式推送当前分支和本次 tag，避免误推其它本地 tag:
+#    git push origin main
+#    git push origin v0.7.1.dev2
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

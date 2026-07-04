@@ -43,6 +43,7 @@ import MysqlDescribeTableTool from './tools/MysqlDescribeTableTool.vue'
 import MysqlListTablesTool from './tools/MysqlListTablesTool.vue'
 import AskUserQuestionTool from './tools/AskUserQuestionTool.vue'
 import ExecuteTool from './tools/ExecuteTool.vue'
+import OcrParseFileTool from './tools/OcrParseFileTool.vue'
 import { getToolCallId, isHiddenToolCall } from './toolRegistry'
 
 const props = defineProps({
@@ -79,6 +80,7 @@ const TOOL_RENDERERS = {
   mysql_describe_table: MysqlDescribeTableTool,
   mysql_list_tables: MysqlListTablesTool,
   mysql_query: MysqlQueryTool,
+  ocr_parse_file: OcrParseFileTool,
   open_kb_document: OpenKbDocumentTool,
   query_kb: QueryKbTool,
   read_file: ReadFileTool,

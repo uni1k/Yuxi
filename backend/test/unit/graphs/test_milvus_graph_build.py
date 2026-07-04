@@ -13,6 +13,24 @@ from yuxi.knowledge.graphs.extractors import (
 from yuxi.knowledge.graphs.milvus_graph_service import MilvusGraphService
 
 
+def _raw_graph_node(node_id: str, *, labels: list[str] | None = None, name: str | None = None) -> dict:
+    return {
+        "id": node_id,
+        "labels": labels or ["MilvusKB", "Entity"],
+        "properties": {"name": name or node_id, "kb_id": "kb_test"},
+    }
+
+
+def _raw_graph_edge(edge_id: str, source_id: str, target_id: str) -> dict:
+    return {
+        "id": edge_id,
+        "type": "RELATED_TO",
+        "source_id": source_id,
+        "target_id": target_id,
+        "properties": {},
+    }
+
+
 def test_normalize_extraction_result_defaults_and_validates_refs():
     result = normalize_extraction_result(
         {
@@ -215,6 +233,78 @@ def test_milvus_graph_service_writes_chunk_entity_and_relation():
     assert any("MERGE (source)-[r:RELATION" in query for query in queries)
     entity_call = next(call for call in tx.run.call_args_list if "MERGE (e:Entity" in call.args[0])
     assert entity_call.kwargs["attributes"] == '[{"text": "工程师", "label": "Occupation"}]'
+
+
+def test_milvus_graph_service_process_query_result_keeps_complete_edges():
+    service = MilvusGraphService()
+    result = service._process_query_result(
+        [
+            {
+                "h": _raw_graph_node("node-a"),
+                "t": _raw_graph_node("node-b"),
+                "r": _raw_graph_edge("edge-a-b", "node-a", "node-b"),
+            }
+        ],
+        limit=2,
+        kb_id="kb_test",
+    )
+
+    assert [node["id"] for node in result["nodes"]] == ["node-a", "node-b"]
+    assert [edge["id"] for edge in result["edges"]] == ["edge-a-b"]
+
+
+def test_milvus_graph_service_process_query_result_filters_edges_after_node_limit():
+    service = MilvusGraphService()
+    result = service._process_query_result(
+        [
+            {
+                "h": _raw_graph_node("node-a"),
+                "t": _raw_graph_node("node-b"),
+                "r": _raw_graph_edge("edge-a-b", "node-a", "node-b"),
+            }
+        ],
+        limit=1,
+        kb_id="kb_test",
+    )
+
+    assert [node["id"] for node in result["nodes"]] == ["node-a"]
+    assert result["edges"] == []
+
+
+def test_milvus_graph_service_process_query_result_filters_edges_to_excluded_chunk_nodes():
+    service = MilvusGraphService()
+    result = service._process_query_result(
+        [
+            {
+                "h": _raw_graph_node("entity-a"),
+                "t": _raw_graph_node("chunk-a", labels=["MilvusKB", "Chunk"]),
+                "r": _raw_graph_edge("edge-entity-chunk", "entity-a", "chunk-a"),
+            }
+        ],
+        limit=2,
+        kb_id="kb_test",
+        exclude_chunk=True,
+    )
+
+    assert [node["id"] for node in result["nodes"]] == ["entity-a"]
+    assert result["edges"] == []
+
+
+def test_milvus_graph_service_process_query_result_clamps_negative_limit():
+    service = MilvusGraphService()
+    result = service._process_query_result(
+        [
+            {
+                "h": _raw_graph_node("node-a"),
+                "t": _raw_graph_node("node-b"),
+                "r": _raw_graph_edge("edge-a-b", "node-a", "node-b"),
+            }
+        ],
+        limit=-1,
+        kb_id="kb_test",
+    )
+
+    assert result == {"nodes": [], "edges": []}
 
 
 @pytest.mark.asyncio

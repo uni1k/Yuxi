@@ -6,15 +6,15 @@
       'flat-md-preview',
       { 'is-dark': themeStore.isDark, 'is-compact': compact }
     ]"
-    v-html="renderedMarkdown"
     @click="handleMarkdownAction"
   ></div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import { renderMarkdown } from '@/utils/markdown_preview'
+import { HTML_PREVIEW_MAX_HEIGHT, HTML_PREVIEW_MIN_HEIGHT } from '@/utils/htmlPreviewRenderer'
 import 'katex/dist/katex.min.css'
 
 const props = defineProps({
@@ -35,14 +35,226 @@ const props = defineProps({
 const themeStore = useThemeStore()
 const shikiTheme = computed(() => (themeStore.isDark ? 'github-dark' : 'github-light'))
 const previewRef = ref(null)
-const renderedMarkdown = shallowRef('')
 const copiedTimers = new WeakMap()
+const htmlPreviewFrames = new Map()
+let pendingMarkdownHtml = null
+
+const HTML_PREVIEW_HEIGHT_MESSAGE = 'yuxi-html-preview-height'
+
+const getHtmlPreviewCssNumber = (slot, property, fallback) => {
+  const preview = slot.closest('.html-preview-render')
+  const rawValue = preview ? getComputedStyle(preview).getPropertyValue(property) : ''
+  const parsedValue = Number.parseInt(rawValue, 10)
+  return Number.isFinite(parsedValue) ? parsedValue : fallback
+}
+
+const createMeasuredSrcdoc = (html, previewId) => {
+  const scriptEndTag = '<' + '/script>'
+  const baseStyle = `<style data-yuxi-html-preview-base>
+html,
+body {
+  margin: 0;
+  min-height: 0;
+}
+
+body {
+  overflow: auto;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+</style>`
+  const script = `<script>
+(() => {
+  const previewId = ${JSON.stringify(previewId)};
+  const ignoredTags = new Set(['SCRIPT', 'STYLE', 'LINK', 'META', 'TITLE']);
+  const getContentHeight = () => {
+    const body = document.body;
+    if (!body) return 0;
+
+    const bodyRect = body.getBoundingClientRect();
+    const bodyStyle = getComputedStyle(body);
+    const paddingTop = Number.parseFloat(bodyStyle.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(bodyStyle.paddingBottom) || 0;
+    let bottom = paddingTop + paddingBottom;
+
+    for (const child of body.children) {
+      if (ignoredTags.has(child.tagName)) continue;
+
+      const rect = child.getBoundingClientRect();
+      const style = getComputedStyle(child);
+      const marginBottom = Number.parseFloat(style.marginBottom) || 0;
+      bottom = Math.max(bottom, rect.bottom - bodyRect.top + marginBottom);
+    }
+
+    return Math.ceil(Math.max(bottom, body.scrollHeight));
+  };
+  const sendHeight = () => {
+    const height = getContentHeight();
+    parent.postMessage({ type: ${JSON.stringify(HTML_PREVIEW_HEIGHT_MESSAGE)}, id: previewId, height }, '*');
+  };
+  document.querySelectorAll('img, video').forEach((node) => {
+    node.addEventListener('load', sendHeight);
+    node.addEventListener('error', sendHeight);
+  });
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(sendHeight).catch(() => {});
+  }
+  window.addEventListener('DOMContentLoaded', sendHeight);
+  window.addEventListener('load', sendHeight);
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(sendHeight);
+    if (document.body) observer.observe(document.body);
+    document.querySelectorAll('body > *').forEach((node) => observer.observe(node));
+  }
+  setTimeout(sendHeight, 0);
+  setTimeout(sendHeight, 100);
+  setTimeout(sendHeight, 500);
+})();
+${scriptEndTag}`
+
+  const withBaseStyle = /<\/head\s*>/i.test(html)
+    ? html.replace(/<\/head\s*>/i, `${baseStyle}</head>`)
+    : `${baseStyle}${html}`
+
+  return /<\/body\s*>/i.test(withBaseStyle)
+    ? withBaseStyle.replace(/<\/body\s*>/i, `${script}</body>`)
+    : `${withBaseStyle}${script}`
+}
+
+const handleHtmlPreviewHeight = (event) => {
+  const data = event.data
+  if (!data || data.type !== HTML_PREVIEW_HEIGHT_MESSAGE) return
+
+  const entry = htmlPreviewFrames.get(data.id)
+  if (!entry || event.source !== entry.iframe.contentWindow) return
+
+  const contentHeight = Number(data.height)
+  if (!Number.isFinite(contentHeight) || contentHeight <= 0) return
+
+  const minHeight = getHtmlPreviewCssNumber(entry.slot, '--html-preview-min-height', HTML_PREVIEW_MIN_HEIGHT)
+  const maxHeight = getHtmlPreviewCssNumber(entry.slot, '--html-preview-max-height', HTML_PREVIEW_MAX_HEIGHT)
+  const nextHeight = Math.min(Math.max(Math.ceil(contentHeight), minHeight), maxHeight)
+  entry.slot.style.height = `${nextHeight}px`
+  entry.slot.dataset.overflow = contentHeight > maxHeight ? 'true' : 'false'
+}
+
+const getHtmlPreviewKey = (preview) => {
+  return preview.querySelector('.html-preview-srcdoc')?.textContent || ''
+}
+
+const collectExistingHtmlPreviews = (root) => {
+  const previewsByKey = new Map()
+  root.querySelectorAll('.html-preview-render').forEach((preview) => {
+    const key = getHtmlPreviewKey(preview)
+    if (!key) return
+
+    const previews = previewsByKey.get(key) || []
+    previews.push(preview)
+    previewsByKey.set(key, previews)
+  })
+  return previewsByKey
+}
+
+const findReusableHtmlPreview = (previewsByKey, key) => {
+  const previews = previewsByKey.get(key)
+  if (!previews) return null
+
+  while (previews.length) {
+    const preview = previews.shift()
+    if (preview.isConnected) return preview
+  }
+
+  return null
+}
+
+const replaceRangeBefore = (root, startNode, endNode, nextNodes) => {
+  const marker = document.createComment('html-preview-anchor')
+  root.insertBefore(marker, endNode)
+
+  let node = startNode
+  while (node && node !== marker && node !== endNode) {
+    const nextNode = node.nextSibling
+    root.removeChild(node)
+    node = nextNode
+  }
+
+  nextNodes.forEach((nextNode) => {
+    root.insertBefore(nextNode, marker)
+  })
+  root.removeChild(marker)
+}
+
+const replaceHtmlPreservingPreviews = (html) => {
+  const root = previewRef.value
+  if (!root) {
+    pendingMarkdownHtml = html
+    return false
+  }
+
+  pendingMarkdownHtml = null
+  if (!html) {
+    root.replaceChildren()
+    return true
+  }
+
+  const existingPreviews = collectExistingHtmlPreviews(root)
+  const template = document.createElement('template')
+  template.innerHTML = html
+  const nextNodes = [...template.content.childNodes]
+  const hasReusablePreview = nextNodes.some((node) => {
+    if (!(node instanceof Element) || !node.classList.contains('html-preview-render')) return false
+
+    const key = getHtmlPreviewKey(node)
+    return key && existingPreviews.get(key)?.some((preview) => preview.isConnected)
+  })
+
+  if (!hasReusablePreview) {
+    root.replaceChildren(...nextNodes)
+    return true
+  }
+
+  const pendingNodes = []
+  let cursor = root.firstChild
+  nextNodes.forEach((nextNode) => {
+    if (!(nextNode instanceof Element) || !nextNode.classList.contains('html-preview-render')) {
+      pendingNodes.push(nextNode)
+      return
+    }
+
+    const key = getHtmlPreviewKey(nextNode)
+    const reusablePreview = key ? findReusableHtmlPreview(existingPreviews, key) : null
+    if (!reusablePreview) {
+      pendingNodes.push(nextNode)
+      return
+    }
+
+    replaceRangeBefore(root, cursor, reusablePreview, pendingNodes)
+    pendingNodes.length = 0
+    cursor = reusablePreview.nextSibling
+  })
+
+  replaceRangeBefore(root, cursor, null, pendingNodes)
+  return true
+}
+
+const cleanupHtmlPreviewFrames = () => {
+  const root = previewRef.value
+  for (const [previewId, entry] of htmlPreviewFrames) {
+    if (!root || !entry.slot.isConnected || !root.contains(entry.slot)) {
+      htmlPreviewFrames.delete(previewId)
+    }
+  }
+}
 
 const enhanceCodeBlocks = () => {
   const root = previewRef.value
   if (!root) return
 
-  root.querySelectorAll('pre:not(.fm-json)').forEach((pre) => {
+  root.querySelectorAll('pre:not(.fm-json):not(.html-preview-srcdoc)').forEach((pre) => {
     if (pre.closest('.markdown-code-block')) return
 
     const parent = pre.parentNode
@@ -63,6 +275,50 @@ const enhanceCodeBlocks = () => {
   })
 }
 
+const enhanceHtmlPreviews = () => {
+  const root = previewRef.value
+  if (!root) return
+
+  root.querySelectorAll('.html-preview-frame-slot').forEach((slot) => {
+    if (slot.querySelector('iframe')) return
+
+    const iframe = document.createElement('iframe')
+    const previewId = `html-preview-${
+      globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`
+    }`
+    iframe.className = 'html-preview-frame'
+    iframe.title = 'HTML 预览'
+    iframe.setAttribute('sandbox', 'allow-scripts')
+    iframe.setAttribute('loading', 'lazy')
+    iframe.setAttribute('referrerpolicy', 'no-referrer')
+    iframe.setAttribute('scrolling', 'auto')
+    iframe.srcdoc = createMeasuredSrcdoc(
+      slot.parentElement?.querySelector('.html-preview-srcdoc')?.textContent || '',
+      previewId
+    )
+    htmlPreviewFrames.set(previewId, { iframe, slot })
+    slot.appendChild(iframe)
+  })
+}
+
+onMounted(async () => {
+  if (pendingMarkdownHtml === null) return
+
+  replaceHtmlPreservingPreviews(pendingMarkdownHtml)
+  await nextTick()
+  enhanceHtmlPreviews()
+  if (props.codeCopy) enhanceCodeBlocks()
+})
+
+window.addEventListener('message', handleHtmlPreviewHeight)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('message', handleHtmlPreviewHeight)
+  htmlPreviewFrames.clear()
+})
+
 watch(
   [() => props.content, shikiTheme, () => props.codeCopy],
   async ([content, theme, codeCopy], _, onCleanup) => {
@@ -72,17 +328,21 @@ watch(
     })
 
     if (!content) {
-      renderedMarkdown.value = ''
+      htmlPreviewFrames.clear()
+      replaceHtmlPreservingPreviews('')
       return
     }
 
     const html = await renderMarkdown(content, { theme })
     if (!expired) {
-      renderedMarkdown.value = html
-      if (!codeCopy) return
+      replaceHtmlPreservingPreviews(html)
+      cleanupHtmlPreviewFrames()
 
       await nextTick()
-      if (!expired) enhanceCodeBlocks()
+      if (expired) return
+      enhanceHtmlPreviews()
+      if (codeCopy) enhanceCodeBlocks()
+      cleanupHtmlPreviewFrames()
     }
   },
   { immediate: true }
@@ -595,6 +855,167 @@ const showCopiedFeedback = (btn) => {
     color: var(--gray-800);
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  .html-preview-render {
+    width: var(--html-preview-width, 800px);
+    max-width: 100%;
+    margin: 14px 0;
+    overflow: hidden;
+    background: var(--gray-0);
+  }
+
+  .html-preview-frame-slot {
+    display: block;
+    width: 100%;
+    height: var(--html-preview-min-height, 1px);
+    max-height: var(--html-preview-max-height, 700px);
+    background: #fff;
+  }
+
+  .html-preview-loading-slot {
+    display: block;
+    width: 100%;
+    height: clamp(
+      var(--html-preview-height, 360px),
+      58vh,
+      var(--html-preview-max-height, 1200px)
+    );
+    padding: 24px;
+    background: linear-gradient(180deg, #fff 0%, var(--gray-50) 100%);
+  }
+
+  .html-preview-loading-canvas {
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    padding: 26px 28px;
+  }
+
+  .html-preview-loading-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .html-preview-skeleton {
+    position: relative;
+    overflow: hidden;
+    border-radius: 50%;
+    background: var(--gray-100);
+  }
+
+  .html-preview-skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.62) 48%,
+      transparent 100%
+    );
+    animation: html-preview-skeleton-shimmer 1.45s ease-in-out infinite;
+  }
+
+  .html-preview-skeleton-title {
+    width: min(280px, 52%);
+    height: 28px;
+    margin-bottom: 22px;
+    border-radius: 6px;
+  }
+
+  .html-preview-skeleton-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+
+  .html-preview-skeleton-card {
+    height: 84px;
+    border-radius: 8px;
+  }
+
+  .html-preview-skeleton-line {
+    width: 70%;
+    height: 14px;
+    margin-top: 12px;
+    border-radius: 999px;
+  }
+
+  .html-preview-skeleton-line.wide {
+    width: 88%;
+  }
+
+  .html-preview-skeleton-line.short {
+    width: 46%;
+  }
+
+  .html-preview-srcdoc {
+    display: none;
+  }
+
+  .html-preview-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #fff;
+  }
+
+  &.is-dark .html-preview-render {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  &.is-dark .html-preview-loading-slot {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  &.is-dark .html-preview-loading-canvas {
+    background: transparent;
+  }
+
+  &.is-dark .html-preview-skeleton {
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  &.is-dark .html-preview-skeleton::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.14) 48%,
+      transparent 100%
+    );
+  }
+
+  @media (max-width: 640px) {
+    .html-preview-loading-slot {
+      padding: 18px;
+    }
+
+    .html-preview-loading-canvas {
+      padding: 22px;
+    }
+
+    .html-preview-skeleton-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .html-preview-skeleton-card {
+      height: 54px;
+    }
+  }
+
+  @keyframes html-preview-skeleton-shimmer {
+    100% {
+      transform: translateX(100%);
+    }
   }
 
   .svg-inline-render {

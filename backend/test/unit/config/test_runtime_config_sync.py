@@ -60,6 +60,7 @@ def test_save_writes_runtime_snapshot_after_base_toml(tmp_path, monkeypatch: pyt
     payload = json.loads(redis.data[RUNTIME_CONFIG_REDIS_KEY])
     assert payload["default_model"] == "test-provider:new-chat"
     assert payload["enable_content_guard"] is True
+    assert payload["default_ocr_engine"] == "rapid_ocr"
     assert "save_dir" not in payload
     assert payload["sandbox_provider"] == "provisioner"
     assert "enable_reranker" not in payload
@@ -117,6 +118,7 @@ def test_refresh_loads_public_config_from_redis(tmp_path, monkeypatch: pytest.Mo
         "default_model": "test-provider:worker-chat",
         "save_dir": redis_save_dir,
         "sandbox_virtual_path_prefix": "/redis/user-data",
+        "default_ocr_engine": "mineru_ocr",
         "enable_reranker": True,
     }
     redis = _FakeRedis(raw=json.dumps(payload))
@@ -127,6 +129,7 @@ def test_refresh_loads_public_config_from_redis(tmp_path, monkeypatch: pytest.Mo
     cfg.refresh()
 
     assert cfg.default_model == "test-provider:worker-chat"
+    assert cfg.default_ocr_engine == "mineru_ocr"
     assert cfg.save_dir == str(tmp_path)
     assert cfg.sandbox_virtual_path_prefix == "/redis/user-data"
     assert str(cfg._config_file) == str(tmp_path / "config" / "base.toml")
@@ -178,11 +181,21 @@ def test_update_ignores_readonly_save_dir(tmp_path, monkeypatch: pytest.MonkeyPa
         {
             "save_dir": str(tmp_path / "other-save"),
             "default_model": "test-provider:updated-chat",
+            "default_ocr_engine": "mineru_ocr",
         }
     )
 
     assert cfg.save_dir == str(tmp_path)
     assert cfg.default_model == "test-provider:updated-chat"
+    assert cfg.default_ocr_engine == "mineru_ocr"
+
+
+def test_update_rejects_unknown_default_ocr_engine(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    _patch_runtime_redis(monkeypatch, _FakeRedis())
+    cfg = Config(save_dir=str(tmp_path))
+
+    with pytest.raises(ValueError, match="不支持的默认 OCR 引擎"):
+        cfg.update({"default_ocr_engine": "not_an_ocr_engine"})
 
 
 def test_dump_config_hides_save_dir(tmp_path):

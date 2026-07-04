@@ -1,6 +1,6 @@
 # 使用轻量级Python基础镜像
-FROM python:3.12-slim
-COPY --from=ghcr.io/astral-sh/uv:0.7.2 /uv /uvx /bin/
+FROM python:3.13-slim
+COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
 COPY --from=node:24-slim /usr/local/bin /usr/local/bin
 COPY --from=node:24-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=node:24-slim /usr/local/include /usr/local/include
@@ -61,9 +61,6 @@ COPY ../backend/package /app/package
 # 如果网络还是不好，可以在后面添加 --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --group test --no-dev --frozen
-
-# 激活虚拟环境并添加到PATH
-ENV PATH="/app/.venv/bin:$PATH"
 
 # 复制 server 代码
 COPY ../backend/server /app/server

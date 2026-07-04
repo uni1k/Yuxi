@@ -121,7 +121,7 @@ docker logs web-dev -f
 
 ```bash
 # 手动拉取基础镜像
-bash scripts/pull_image.sh python:3.12-slim
+bash scripts/pull_image.sh python:3.13-slim
 ```
 
 **离线环境部署方案**：

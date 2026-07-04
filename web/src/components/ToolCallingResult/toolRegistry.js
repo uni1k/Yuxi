@@ -35,6 +35,7 @@ export const TOOL_ICON_MAP = {
   mysql_describe_table: Database,
   mysql_list_tables: Database,
   mysql_query: Database,
+  ocr_parse_file: FileText,
   open_kb_document: FileText,
   present_artifacts: FolderOutput,
   query_kb: BookOpen,

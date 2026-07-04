@@ -158,19 +158,25 @@ import { message } from 'ant-design-vue'
 import { ChevronDown, ChevronUp, X } from 'lucide-vue-next'
 import { threadApi } from '@/apis'
 import { ocrApi } from '@/apis/system_api'
+import { useConfigStore } from '@/stores/config'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
   threadId: { type: String, default: '' },
-  ensureThread: { type: Function, default: null }
+  ensureThread: { type: Function, default: null },
+  initialFiles: { type: Array, default: () => [] },
+  initialFilesKey: { type: Number, default: 0 }
 })
 
 const emit = defineEmits(['update:open', 'added'])
 
+const configStore = useConfigStore()
+const DEFAULT_OCR_ENGINE = 'rapid_ocr'
 const fileItems = ref([])
 const confirming = ref(false)
 let localIdSeed = 0
+let consumedInitialFilesKey = 0
 
 const methodLabels = {
   disable: 'PDF 文本提取',
@@ -233,18 +239,18 @@ const getErrorMessage = (error, fallback = '操作失败') => {
   return error?.response?.data?.detail || error?.message || fallback
 }
 
-const isPdfParseMethods = (methods) =>
-  Array.isArray(methods) && methods.includes('disable')
-
-const getDefaultParseMethod = (methods, healthStatus = ocrHealthStatus.value) => {
-  if (!isPdfParseMethods(methods)) return null
-
-  const mineruStatus = healthStatus?.mineru_ocr?.status
-  if (mineruStatus === 'healthy' && methods.includes('mineru_ocr')) {
-    return 'mineru_ocr'
+const getDefaultParseMethod = (parseMethods) => {
+  if (!Array.isArray(parseMethods) || parseMethods.length === 0) {
+    return null
   }
-
-  return null
+  const configuredEngine = String(configStore.config?.default_ocr_engine || DEFAULT_OCR_ENGINE).trim()
+  if (parseMethods.includes(configuredEngine)) {
+    return configuredEngine
+  }
+  if (parseMethods.includes(DEFAULT_OCR_ENGINE)) {
+    return DEFAULT_OCR_ENGINE
+  }
+  return parseMethods[0]
 }
 
 const normalizeTmpUpload = (response) => ({
@@ -258,24 +264,25 @@ const normalizeTmpUpload = (response) => ({
   parseSupported: response.parse_supported,
   parseMethods: response.parse_methods || [],
   selectedParseMethod: getDefaultParseMethod(response.parse_methods || []),
-  selectedParseMethodAuto: true
+  parseMethodTouched: false
 })
+
+watch(
+  () => configStore.config?.default_ocr_engine,
+  () => {
+    fileItems.value = fileItems.value.map((item) => {
+      if (!item.parseSupported || item.parseMethodTouched || item.status === 'parsed') {
+        return item
+      }
+      return { ...item, selectedParseMethod: getDefaultParseMethod(item.parseMethods || []) }
+    })
+  }
+)
 
 const updateItem = (localId, patch) => {
   fileItems.value = fileItems.value.map((item) =>
     item.localId === localId ? { ...item, ...patch } : item
   )
-}
-
-const refreshAutoSelectedParseMethods = (healthStatus = ocrHealthStatus.value) => {
-  fileItems.value = fileItems.value.map((item) => {
-    if (!item.selectedParseMethodAuto) return item
-
-    return {
-      ...item,
-      selectedParseMethod: getDefaultParseMethod(item.parseMethods || [], healthStatus)
-    }
-  })
 }
 
 const checkOcrHealth = async () => {
@@ -288,7 +295,6 @@ const checkOcrHealth = async () => {
       ...defaultOcrHealthStatus(),
       ...(healthData?.services || {})
     }
-    refreshAutoSelectedParseMethods(ocrHealthStatus.value)
   } catch (error) {
     console.error('OCR健康检查失败:', error)
   } finally {
@@ -329,6 +335,26 @@ const handleBeforeUpload = (file) => {
   void uploadFile(file)
   return false
 }
+
+const uploadInitialFiles = () => {
+  if (!props.open || !props.initialFilesKey) return
+  if (props.initialFilesKey === consumedInitialFilesKey) return
+
+  consumedInitialFilesKey = props.initialFilesKey
+  Array.from(props.initialFiles || [])
+    .filter((file) => file instanceof File)
+    .forEach((file) => {
+      void uploadFile(file)
+    })
+}
+
+watch(
+  () => [props.open, props.initialFilesKey],
+  () => {
+    uploadInitialFiles()
+  },
+  { flush: 'post' }
+)
 
 const getMethodStatus = (method) => {
   if (method === 'disable') return 'local'
@@ -386,7 +412,7 @@ const handleParseMethodChange = (localId, selectedParseMethod) => {
   updateItem(localId, {
     ...clearParsedState,
     selectedParseMethod,
-    selectedParseMethodAuto: false,
+    parseMethodTouched: true,
     parseError: null,
     status: item?.status === 'parsed' ? 'uploaded' : item?.status
   })

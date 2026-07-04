@@ -1,6 +1,7 @@
 import hashlib
 import time
 
+from yuxi import config
 from yuxi.knowledge.chunking.ragflow_like.presets import resolve_chunk_processing_params
 from yuxi.utils import hashstr, logger
 from yuxi.utils.datetime_utils import utc_isoformat
@@ -28,7 +29,8 @@ def resolve_processing_params(
     request_params: dict | None = None,
 ) -> dict:
     merged_params = sanitize_processing_params(merge_processing_params(file_processing_params, request_params)) or {}
-    merged_params["ocr_engine"] = merged_params.get("ocr_engine") or "disable"
+    if "ocr_engine" not in merged_params or not merged_params.get("ocr_engine"):
+        merged_params["ocr_engine"] = config.default_ocr_engine
     if not isinstance(merged_params.get("ocr_engine_config"), dict):
         merged_params["ocr_engine_config"] = {}
 

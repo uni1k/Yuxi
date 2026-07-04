@@ -14,7 +14,7 @@ $slashCount = ($ImageTag -split '/' | Measure-Object).Count - 1
 # 根据镜像格式设置镜像 URL
 switch ($slashCount) {
     0 {
-        # 无前缀 (例如: python:3.12-slim)
+        # 无前缀 (例如: python:3.13-slim)
         $mirrorUrl = "m.daocloud.io/docker.io/library"
         Write-Host "Image format: Official image (no prefix)" -ForegroundColor Cyan
     }

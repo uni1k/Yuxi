@@ -2,6 +2,14 @@
   <div class="workspace-view layout-container">
     <PageHeader title="工作区" :loading="loadingTree || loadingPreview" :show-border="true">
       <template #actions>
+        <a-button
+          v-if="isAgentsWorkspacePath"
+          class="lucide-icon-btn"
+          @click="openAgentsGuideModal"
+        >
+          <template #icon><CircleHelp :size="16" /></template>
+          使用说明
+        </a-button>
         <a-button :disabled="activeSourceKey !== 'personal'" @click="openCreateDirectoryModal">
           新建文件夹
         </a-button>
@@ -128,6 +136,37 @@
     </a-modal>
 
     <a-modal
+      v-model:open="agentsGuideModalVisible"
+      title="Agents 目录说明"
+      okText="我知道了"
+      :cancelButtonProps="{ style: { display: 'none' } }"
+      @ok="closeAgentsGuideModal"
+    >
+      <div class="agents-guide-content">
+        <p>
+          这个文件夹中的说明文件会在合适的时机注入到 Agent
+          的执行流程中，用来补充你的长期偏好、业务背景和协作要求。
+        </p>
+        <p>
+          目前支持 <code>AGENTS.md</code>：其中内容会在每次会话中注入到 Agent Prompt，适合写入希望
+          Agent 长期遵守的信息。
+        </p>
+
+        <section class="agents-guide-section">
+          <h3>填写建议</h3>
+          <ul>
+            <li>写清常用工作背景，例如部门职责、常见任务、知识库使用方式。</li>
+            <li>写清回答偏好，例如语言风格、详略程度、是否优先给结论。</li>
+            <li>写清业务术语和固定称呼，帮助 Agent 保持表达一致。</li>
+            <li>写清资料使用要求，例如优先引用哪些知识库、哪些内容需要谨慎确认。</li>
+            <li>写清协作边界，例如不确定时先提问，涉及重要决策时先给方案再执行。</li>
+            <li>优先使用明确、可执行的规则，避免“尽量做好”这类模糊描述。</li>
+          </ul>
+        </section>
+      </div>
+    </a-modal>
+
+    <a-modal
       :open="previewModalVisible && !useInlinePreview"
       width="880px"
       :style="{ maxWidth: '92vw', top: '5vh' }"
@@ -158,7 +197,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { ChevronLeft, ChevronRight, LibraryBig } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CircleHelp, LibraryBig } from 'lucide-vue-next'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
 import WorkspaceFileList from '@/components/workspace/WorkspaceFileList.vue'
@@ -201,6 +240,7 @@ const selectedDatabase = ref(null)
 const workspaceMainRef = ref(null)
 const workspaceMainWidth = ref(0)
 const createDirectoryModalVisible = ref(false)
+const agentsGuideModalVisible = ref(false)
 const newDirectoryName = ref('')
 const creatingDirectory = ref(false)
 const uploadingFile = ref(false)
@@ -211,6 +251,7 @@ const previewWidthPercent = ref(50)
 const previewRequestId = ref(0)
 const INLINE_PREVIEW_MIN_WIDTH = 960
 const MAX_WORKSPACE_UPLOAD_FILES = 50
+const AGENTS_WORKSPACE_PATH = '/agents'
 const knowledgeFileBrowser = reactive({
   parentId: null,
   pathPrefix: '',
@@ -222,6 +263,19 @@ const knowledgeFileBrowser = reactive({
 
 const useInlinePreview = computed(() => workspaceMainWidth.value >= INLINE_PREVIEW_MIN_WIDTH)
 const isKnowledgeSource = computed(() => activeSourceKey.value.startsWith('database:'))
+const comparablePath = (path) => String(path || '/').replace(/\/$/, '') || '/'
+const isSameOrChildPath = (path, targetPath) => {
+  const normalizedPath = comparablePath(path)
+  const normalizedTargetPath = comparablePath(targetPath)
+  return (
+    normalizedPath === normalizedTargetPath || normalizedPath.startsWith(`${normalizedTargetPath}/`)
+  )
+}
+const isAgentsWorkspacePath = computed(
+  () =>
+    activeSourceKey.value === 'personal' &&
+    isSameOrChildPath(currentPath.value, AGENTS_WORKSPACE_PATH)
+)
 const selectedPreviewPath = computed(() =>
   selectedEntry.value?.source === 'knowledge'
     ? selectedEntry.value.name || ''
@@ -617,6 +671,14 @@ const openCreateDirectoryModal = () => {
   createDirectoryModalVisible.value = true
 }
 
+const openAgentsGuideModal = () => {
+  agentsGuideModalVisible.value = true
+}
+
+const closeAgentsGuideModal = () => {
+  agentsGuideModalVisible.value = false
+}
+
 const createDirectory = async () => {
   if (creatingDirectory.value) return
   const directoryName = newDirectoryName.value.trim()
@@ -669,16 +731,6 @@ const handleUploadInputChange = async (event) => {
     uploadingFile.value = false
     event.target.value = ''
   }
-}
-
-const comparablePath = (path) => String(path || '/').replace(/\/$/, '') || '/'
-
-const isSameOrChildPath = (path, targetPath) => {
-  const normalizedPath = comparablePath(path)
-  const normalizedTargetPath = comparablePath(targetPath)
-  return (
-    normalizedPath === normalizedTargetPath || normalizedPath.startsWith(`${normalizedTargetPath}/`)
-  )
 }
 
 const confirmDeleteEntries = (targetEntries) => {
@@ -958,6 +1010,48 @@ watch(useInlinePreview, (isInline, wasInline) => {
     margin: 0;
     font-size: 14px;
     line-height: 1.6;
+  }
+}
+
+.agents-guide-content {
+  color: var(--gray-700);
+  font-size: 14px;
+  line-height: 1.7;
+
+  p {
+    margin: 0 0 12px;
+  }
+
+  code {
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--gray-50);
+    color: var(--main-700);
+    font-size: 13px;
+  }
+}
+
+.agents-guide-section {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--gray-150);
+  border-radius: 8px;
+  background: var(--gray-10);
+
+  h3 {
+    margin: 0 0 10px;
+    color: var(--gray-900);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  li + li {
+    margin-top: 6px;
   }
 }
 </style>

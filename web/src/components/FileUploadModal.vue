@@ -418,6 +418,7 @@
 import { ref, computed, onMounted, watch, h } from 'vue'
 import { message, Upload, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
+import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
 import { ocrApi } from '@/apis/system_api'
 import { fileApi, documentApi } from '@/apis/knowledge_api'
@@ -468,6 +469,8 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'success'])
 
 const store = useDatabaseStore()
+const configStore = useConfigStore()
+const DEFAULT_OCR_ENGINE = 'rapid_ocr'
 
 // 文件夹选择相关
 const selectedFolderId = ref(null)
@@ -493,6 +496,8 @@ watch(
   () => props.visible,
   (newVal) => {
     if (newVal) {
+      ocrEngineTouched.value = false
+      applyDefaultOcrEngine()
       selectedFolderId.value = props.currentFolderId
       isFolderUpload.value = props.isFolderMode
       uploadMode.value = props.mode || (props.isFolderMode ? 'folder' : 'file')
@@ -909,10 +914,11 @@ const ocrHealthStatus = ref({
 const ocrHealthChecking = ref(false)
 const ocrPanelOpen = ref(false)
 const unavailableOcrExpanded = ref(false)
+const ocrEngineTouched = ref(false)
 
 // 解析参数
 const processingParams = ref({
-  ocr_engine: 'disable',
+  ocr_engine: DEFAULT_OCR_ENGINE,
   ocr_engine_config: {}
 })
 
@@ -1027,6 +1033,26 @@ const ocrEngineOptions = [
   }
 ]
 
+const resolveDefaultOcrEngine = () => {
+  const configuredEngine = String(configStore.config?.default_ocr_engine || DEFAULT_OCR_ENGINE).trim()
+  return ocrEngineOptions.some((option) => option.value === configuredEngine)
+    ? configuredEngine
+    : DEFAULT_OCR_ENGINE
+}
+
+const applyDefaultOcrEngine = () => {
+  processingParams.value.ocr_engine = resolveDefaultOcrEngine()
+}
+
+watch(
+  () => configStore.config?.default_ocr_engine,
+  () => {
+    if (props.visible && !ocrEngineTouched.value) {
+      applyDefaultOcrEngine()
+    }
+  }
+)
+
 const ocrStatusLabels = {
   local: '不启用',
   healthy: '可用',
@@ -1088,6 +1114,7 @@ const selectedOcrEngineLabel = computed(() => {
 
 const selectOcrEngine = (engine) => {
   if (isUnavailableOcrEngine(engine)) return
+  ocrEngineTouched.value = true
   processingParams.value.ocr_engine = engine
   ocrPanelOpen.value = false
 }

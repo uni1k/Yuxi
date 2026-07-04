@@ -359,6 +359,6 @@ def test_resolve_processing_params_defaults_ocr_fields() -> None:
         file_processing_params={"ocr_engine_config": "invalid", "enable_ocr": "mineru_ocr"},
     )
 
-    assert resolved["ocr_engine"] == "disable"
+    assert resolved["ocr_engine"] == "rapid_ocr"
     assert resolved["ocr_engine_config"] == {}
     assert "enable_ocr" not in resolved

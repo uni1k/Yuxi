@@ -41,7 +41,7 @@ def test_parser_parse_pdf_file_returns_markdown_text(tmp_path: Path):
     file_path = tmp_path / "parser_test.pdf"
     _build_pdf(file_path, "Parser PDF content")
 
-    markdown = Parser.parse(str(file_path))
+    markdown = Parser.parse(str(file_path), params={"ocr_engine": "disable"})
 
     assert isinstance(markdown, str)
     assert "Parser" in markdown
@@ -224,7 +224,7 @@ def test_parse_image_ignores_enable_ocr(tmp_path: Path) -> None:
     _build_png(file_path)
 
     with pytest.raises(ValueError, match="必须启用OCR"):
-        parser_unified.parse_image(str(file_path), params={"enable_ocr": "rapid_ocr"})
+        parser_unified.parse_image(str(file_path), params={"ocr_engine": "disable", "enable_ocr": "rapid_ocr"})
 
 
 @pytest.mark.asyncio
@@ -232,12 +232,53 @@ async def test_parser_aparse_pdf_file_returns_markdown_text(tmp_path: Path):
     file_path = tmp_path / "parser_test_async.pdf"
     _build_pdf(file_path, "Async Parser PDF content")
 
-    markdown = await Parser.aparse(str(file_path))
+    markdown = await Parser.aparse(str(file_path), params={"ocr_engine": "disable"})
 
     assert isinstance(markdown, str)
     assert "Async" in markdown
     assert "content" in markdown
     assert len(markdown.strip()) > 0
+
+
+def test_parse_pdf_uses_config_default_ocr_when_engine_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import yuxi
+
+    file_path = tmp_path / "parser_test.pdf"
+    _build_pdf(file_path, "Parser PDF content")
+    captured = {}
+
+    def _fake_process_file(processor_type, file, params=None):
+        captured["processor_type"] = processor_type
+        captured["file"] = file
+        captured["params"] = params
+        return "default OCR content"
+
+    monkeypatch.setattr(yuxi.config, "default_ocr_engine", "mineru_ocr")
+    monkeypatch.setattr(DocumentProcessorFactory, "process_file", _fake_process_file)
+
+    result = parser_unified.parse_pdf(str(file_path), params={})
+
+    assert result == "default OCR content"
+    assert captured["processor_type"] == "mineru_ocr"
+    assert captured["file"] == str(file_path)
+
+
+def test_parse_pdf_keeps_explicit_disable_when_default_ocr_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import yuxi
+
+    file_path = tmp_path / "parser_test.pdf"
+    _build_pdf(file_path, "Parser PDF content")
+    monkeypatch.setattr(yuxi.config, "default_ocr_engine", "mineru_ocr")
+
+    result = parser_unified.parse_pdf(str(file_path), params={"ocr_engine": "disable"})
+
+    assert "Parser PDF content" in result
 
 
 @pytest.mark.asyncio

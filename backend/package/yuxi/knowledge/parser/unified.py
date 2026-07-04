@@ -94,8 +94,11 @@ def _resolve_image_storage_params(params: dict | None) -> tuple[str, str]:
 
 
 def _resolve_ocr_engine_params(params: dict | None) -> tuple[str, dict[str, Any]]:
+    from yuxi import config
+
     params = params or {}
-    engine = str(params.get("ocr_engine") or "disable")
+    engine = str(params.get("ocr_engine") if "ocr_engine" in params else config.default_ocr_engine)
+    engine = engine.strip() or config.default_ocr_engine
     engine_config = params.get("ocr_engine_config")
     processor_params = dict(params)
     if isinstance(engine_config, dict):

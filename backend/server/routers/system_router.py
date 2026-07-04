@@ -8,7 +8,7 @@ from yuxi import config, get_version
 from yuxi.storage.postgres.models_business import User
 from yuxi.utils.logging_config import logger
 
-from server.utils.auth_middleware import get_admin_user
+from server.utils.auth_middleware import get_admin_user, get_required_user
 
 system = APIRouter(prefix="/system", tags=["system"])
 
@@ -54,7 +54,7 @@ async def discovery():
 
 
 @system.get("/config")
-async def get_config(current_user: User = Depends(get_admin_user)):
+async def get_config(current_user: User = Depends(get_required_user)):
     """获取系统配置"""
     return config.dump_config()
 
@@ -66,7 +66,10 @@ async def update_config_single(key=Body(...), value=Body(...), current_user: Use
         raise HTTPException(status_code=400, detail=f"未知配置项: {key}")
     if not config.can_update(key):
         raise HTTPException(status_code=400, detail=f"配置项不可修改: {key}")
-    setattr(config, key, value)
+    try:
+        config.set_value(key, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     config.save()
     return config.dump_config()
 
@@ -74,7 +77,10 @@ async def update_config_single(key=Body(...), value=Body(...), current_user: Use
 @system.post("/config/update")
 async def update_config_batch(items: dict = Body(...), current_user: User = Depends(get_admin_user)) -> dict:
     """批量更新配置项"""
-    config.update(items)
+    try:
+        config.update(items)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     config.save()
     return config.dump_config()
 

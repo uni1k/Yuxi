@@ -26,7 +26,7 @@ export const configApi = {
    * 获取系统配置
    * @returns {Promise} - 系统配置
    */
-  getConfig: async () => apiAdminGet('/api/system/config'),
+  getConfig: async () => apiGet('/api/system/config'),
 
   /**
    * 更新单个配置项
