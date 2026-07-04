@@ -45,9 +45,10 @@ RUN set -ex \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 OFD 转 PDF 工具（aarch64 上可能需要从源码构建，故保留 build-essential/python3-dev）
-# 若 ofd2pdf 在 PyPI 上无 aarch64 wheel，需替换为其他安装方式或改用 YUXI_OFD_TO_PDF_COMMAND
-RUN pip install --no-cache-dir ofd2pdf \
+# 使用 LibreOffice soffice 作为 OFD 转 PDF 的包装器
+# preprocess.py 会以 <ofd2pdf> <input.ofd> <output.pdf> 形式调用
+RUN printf '#!/bin/bash\nset -e\ninput="$1"\noutput="$2"\noutdir=$(dirname "$output")\nbase=$(basename "$input" .ofd)\nsoffice --headless --convert-to pdf --outdir "$outdir" "$input"\nmv "${outdir}/${base}.pdf" "$output"\n' > /usr/local/bin/ofd2pdf \
+    && chmod +x /usr/local/bin/ofd2pdf \
     && which ofd2pdf
 
 # 复制项目配置文件
