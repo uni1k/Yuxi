@@ -1,7 +1,7 @@
 <template>
   <div class="attachment-options">
     <div class="option-item" :class="{ disabled: disabled }" @click="handleAttachmentClick">
-      <a-tooltip title="支持任意文件格式 ≤ 5 MB" placement="right">
+      <a-tooltip title="支持任意文件格式 ≤ 20 MB" placement="right">
         <div class="option-content">
           <FileText :size="14" class="option-icon" />
           <span class="option-text">添加附件</span>
@@ -10,7 +10,7 @@
     </div>
 
     <div class="option-item" @click="handleImageUpload">
-      <a-tooltip title="支持 jpg/jpeg/png/gif， ≤ 5 MB" placement="right">
+      <a-tooltip title="支持 jpg/jpeg/png/gif， ≤ 10 MB" placement="right">
         <div class="option-content">
           <Image :size="14" class="option-icon" />
           <span class="option-text">上传图片</span>
