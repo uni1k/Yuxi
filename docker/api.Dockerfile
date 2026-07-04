@@ -45,11 +45,8 @@ RUN set -ex \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# 使用 LibreOffice soffice 作为 OFD 转 PDF 的包装器
-# preprocess.py 会以 <ofd2pdf> <input.ofd> <output.pdf> 形式调用
-RUN printf '#!/bin/bash\nset -e\ninput="$1"\noutput="$2"\noutdir=$(dirname "$output")\nbase=$(basename "$input" .ofd)\nsoffice --headless --convert-to pdf --outdir "$outdir" "$input"\nmv "${outdir}/${base}.pdf" "$output"\n' > /usr/local/bin/ofd2pdf \
-    && chmod +x /usr/local/bin/ofd2pdf \
-    && which ofd2pdf
+# 安装 easyofd 用于 OFD 转 PDF
+RUN pip install --no-cache-dir easyofd
 
 # 复制项目配置文件
 COPY ../backend/pyproject.toml /app/pyproject.toml

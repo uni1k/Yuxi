@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import shlex
 import shutil
@@ -12,6 +13,11 @@ from pathlib import Path
 CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".wps", ".ofd")
 LIBREOFFICE_COMMANDS: tuple[str, ...] = ("soffice", "libreoffice")
 DEFAULT_CONVERT_TIMEOUT_SECONDS = 120
+
+try:
+    from easyofd.ofd import OFD as _EasyOFD
+except ImportError:
+    _EasyOFD = None
 
 
 class DocumentPreprocessError(RuntimeError):
@@ -60,14 +66,34 @@ def _convert_office_document(source_path: Path, output_dir: Path) -> Path:
 
 def _convert_ofd_document(source_path: Path, output_dir: Path) -> Path:
     output_path = output_dir / f"{source_path.stem}.pdf"
-    command = _resolve_ofd_converter_command()
-    if command is None:
-        raise DocumentPreprocessError("解析 OFD 文件需要配置 YUXI_OFD_TO_PDF_COMMAND 或安装 ofd2pdf 命令")
 
-    completed = _run_command([*command, str(source_path), str(output_path)])
-    if completed.returncode != 0 or not output_path.exists():
-        error = _format_command_error(completed)
-        raise DocumentPreprocessError(f"OFD 文件转换为 PDF 失败: {error}")
+    # 如果用户配置了外部 OFD 转换命令，优先使用
+    external_command = _resolve_ofd_converter_command()
+    if external_command is not None:
+        completed = _run_command([*external_command, str(source_path), str(output_path)])
+        if completed.returncode != 0 or not output_path.exists():
+            error = _format_command_error(completed)
+            raise DocumentPreprocessError(f"OFD 文件转换为 PDF 失败: {error}")
+        return output_path
+
+    # 默认使用 easyofd 进行纯 Python 转换
+    if _EasyOFD is None:
+        raise DocumentPreprocessError(
+            "解析 OFD 文件需要安装 easyofd，或通过 YUXI_OFD_TO_PDF_COMMAND 配置外部转换命令"
+        )
+
+    try:
+        ofd_b64 = base64.b64encode(source_path.read_bytes()).decode("utf-8")
+        ofd = _EasyOFD()
+        ofd.read(ofd_b64)
+        pdf_bytes = ofd.to_pdf()
+        ofd.del_data()
+        output_path.write_bytes(pdf_bytes)
+    except Exception as exc:
+        raise DocumentPreprocessError(f"OFD 文件转换为 PDF 失败: {exc}") from exc
+
+    if not output_path.exists():
+        raise DocumentPreprocessError("OFD 文件转换为 PDF 失败: 输出文件未生成")
 
     return output_path
 
