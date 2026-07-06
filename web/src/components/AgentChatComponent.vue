@@ -178,7 +178,6 @@
                       size="nano"
                       display-name="mini"
                       placeholder="选择模型"
-                      clearable
                       @select-model="handleModelSelect"
                     />
                   </div>
