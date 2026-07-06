@@ -617,35 +617,40 @@ const RECOMMENDED_SKILLS = [
   {
     slug: 'skill-creator',
     name: 'skill-creator',
-    description: '创建、维护和改进 Agent Skill。',
+    description:
+      '创建、维护和改进 Agent Skill，适合编写 SKILL.md、设计使用流程、整理依赖与优化技能说明。',
     source: 'https://modelscope.cn/skills/@anthropics/skill-creator',
     aliases: ['skill-creator', 'Skill Creator']
   },
   {
     slug: 'frontend-design',
     name: 'frontend-design',
-    description: '面向前端界面与交互设计的实现建议。',
+    description:
+      '提供前端界面与交互设计建议，适合规划页面结构、组件状态、响应式布局和可访问性细节。',
     source: 'https://modelscope.cn/skills/@anthropics/frontend-design',
     aliases: ['frontend-design', 'Frontend Design']
   },
   {
     slug: 'docx',
     name: 'docx',
-    description: '读取、编辑和生成 Word DOCX 文档。',
+    description:
+      '读取、编辑和生成 Word DOCX 文档，适合处理正文、表格、批注、样式和文档结构化内容。',
     source: 'https://modelscope.cn/skills/@anthropics/docx',
     aliases: ['docx', 'DOCX']
   },
   {
     slug: 'xlsx',
     name: 'xlsx',
-    description: '读取、编辑和生成 Excel XLSX 表格。',
+    description:
+      '读取、分析和生成 Excel XLSX 表格，适合处理多工作表数据、公式结果、统计汇总和结构化导出。',
     source: 'https://modelscope.cn/skills/@anthropics/xlsx',
     aliases: ['xlsx', 'XLSX']
   },
   {
     slug: 'pdf',
     name: 'pdf',
-    description: '读取、分析和处理 PDF 文件。',
+    description:
+      '读取、提取和分析 PDF 文档内容，适合从报告、论文、合同等文件中整理要点、定位证据并生成摘要。',
     source: 'https://modelscope.cn/skills/@anthropics/pdf',
     aliases: ['pdf', 'PDF']
   }
@@ -1432,6 +1437,20 @@ defineExpose({
 
 .card-wrapper {
   position: relative;
+
+  :deep(.info-card-mini-desc) {
+    display: -webkit-box;
+    min-height: 36px;
+    color: var(--gray-700);
+    white-space: normal;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  :deep(.info-card-mini .info-card-icon) {
+    align-self: flex-start;
+  }
 
   &.batch-mode {
     :deep(.info-card) {

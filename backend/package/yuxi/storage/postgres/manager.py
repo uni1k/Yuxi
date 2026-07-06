@@ -8,7 +8,8 @@ from psycopg_pool import AsyncConnectionPool
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
-from yuxi.storage.postgres.models_business import AGENT_RUN_TERMINAL_STATUSES, Base as BusinessBase
+from yuxi.storage.postgres.models_business import AGENT_RUN_TERMINAL_STATUSES
+from yuxi.storage.postgres.models_business import Base as BusinessBase
 from yuxi.storage.postgres.models_knowledge import Base as KnowledgeBase
 from yuxi.utils import logger
 from yuxi.utils.singleton import SingletonMeta
@@ -400,6 +401,16 @@ class PostgresManager(metaclass=SingletonMeta):
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS user_config (
+                id SERIAL PRIMARY KEY,
+                uid VARCHAR NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+                enable_memory BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_user_config_uid UNIQUE (uid)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS agents (
                 id SERIAL PRIMARY KEY,
                 slug VARCHAR(80) NOT NULL UNIQUE,
@@ -421,6 +432,16 @@ class PostgresManager(metaclass=SingletonMeta):
             "ALTER TABLE IF EXISTS agents ADD COLUMN IF NOT EXISTS backend_id VARCHAR(64)",
             "ALTER TABLE IF EXISTS agents ADD COLUMN IF NOT EXISTS share_config JSONB NOT NULL DEFAULT '{}'::jsonb",
             "ALTER TABLE IF EXISTS agents ADD COLUMN IF NOT EXISTS is_subagent BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE IF EXISTS user_config ADD COLUMN IF NOT EXISTS enable_memory BOOLEAN NOT NULL DEFAULT FALSE",
+            """
+            UPDATE cli_auth_sessions
+            SET api_key_id = NULL
+            WHERE api_key_id IN (
+                SELECT id FROM api_keys WHERE user_id IS NULL
+            )
+            """,
+            "DELETE FROM api_keys WHERE user_id IS NULL",
+            "ALTER TABLE IF EXISTS api_keys ALTER COLUMN user_id SET NOT NULL",
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_agents_slug ON agents(slug)",
             "CREATE INDEX IF NOT EXISTS ix_agents_backend_id ON agents(backend_id)",
             "CREATE INDEX IF NOT EXISTS ix_agents_is_subagent ON agents(is_subagent)",

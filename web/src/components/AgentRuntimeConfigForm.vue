@@ -36,6 +36,8 @@
                   <ModelSelectorComponent
                     @select-model="(spec) => handleModelChange(key, spec)"
                     :model_spec="agentConfig[key] || ''"
+                    :disabled="isReadOnlyConfig"
+                    clearable
                   />
                 </div>
 
@@ -619,7 +621,7 @@ const getPlaceholder = (_key, value) => {
 
 const handleModelChange = (key, spec) => {
   if (isReadOnlyConfig.value) return
-  if (typeof spec !== 'string' || !spec) return
+  if (typeof spec !== 'string') return
   agentStore.updateAgentConfig({
     [key]: spec
   })

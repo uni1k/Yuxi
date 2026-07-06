@@ -166,6 +166,7 @@
                       size="nano"
                       display-name="mini"
                       placeholder="选择模型"
+                      clearable
                       @select-model="handleModelSelect"
                     />
                   </div>
@@ -973,8 +974,12 @@ const currentModelSpec = computed(
   () => selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] || agentDefaultModel.value
 )
 const handleModelSelect = (spec) => {
-  if (typeof spec === 'string' && spec) {
-    selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] = spec
+  if (typeof spec === 'string') {
+    if (spec) {
+      selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] = spec
+    } else {
+      delete selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY]
+    }
   }
 }
 

@@ -9,6 +9,15 @@
       <div class="model-select-content">
         <div class="model-info">
           <span class="model-text text" :title="displayModelTitle">{{ displayModelText }}</span>
+          <button
+            v-if="props.clearable && props.model_spec && !props.disabled"
+            class="model-clear-btn"
+            @mousedown.prevent.stop
+            @click.stop="handleClear"
+            title="清空选择"
+          >
+            <X :size="14" />
+          </button>
         </div>
         <div v-if="resolvedSize !== 'nano'" class="model-status-controls">
           <span
@@ -87,7 +96,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
 import { modelProviderApi } from '@/apis/system_api'
-import { RefreshCw } from 'lucide-vue-next'
+import { RefreshCw, X } from 'lucide-vue-next'
 import { useModelStatus } from '@/composables/useModelStatus'
 
 const props = defineProps({
@@ -105,6 +114,10 @@ const props = defineProps({
     validator: (value) => ['nano', 'small', 'middle', 'large'].includes(value)
   },
   disabled: {
+    type: Boolean,
+    default: false
+  },
+  clearable: {
     type: Boolean,
     default: false
   },
@@ -227,6 +240,15 @@ const state = reactive({
   refreshingCache: false
 })
 
+watch(
+  () => props.model_spec,
+  (spec, previousSpec) => {
+    if (spec !== previousSpec) {
+      state.currentModelStatus = null
+    }
+  }
+)
+
 const resolvedSize = computed(() => props.size || 'small')
 const modelSelectClasses = computed(() => ({
   'model-select--nano': resolvedSize.value === 'nano',
@@ -345,6 +367,14 @@ const handleSelectV2Model = (spec) => {
   emit('select-model', spec)
   dropdownOpen.value = false
 }
+
+// 清空选择
+const handleClear = () => {
+  if (props.disabled) return
+  state.currentModelStatus = null
+  emit('select-model', '')
+  dropdownOpen.value = false
+}
 </script>
 
 <style lang="less" scoped>
@@ -392,6 +422,28 @@ const handleSelectV2Model = (spec) => {
 
 .model-select--nano .model-text {
   color: currentColor;
+}
+
+.model-clear-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-400);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: var(--gray-700);
+    background: var(--gray-100);
+  }
 }
 
 .model-select--disabled {

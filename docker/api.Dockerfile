@@ -60,8 +60,7 @@ COPY backend/uv.lock /app/uv.lock
 COPY backend/package /app/package
 
 # 如果网络还是不好，可以在后面添加 --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --group test --no-dev --frozen
+RUN uv sync --no-cache --group test --no-dev --frozen
 
 # 安装 easyofd 用于 OFD 转 PDF
 # 必须在 uv sync 之后安装，否则 uv sync 会清理掉未在 uv.lock 中声明的包

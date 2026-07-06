@@ -16,11 +16,13 @@ from yuxi.knowledge.graphs.milvus_graph_service import GRAPH_TASK_TYPE, MilvusGr
 from yuxi.knowledge.parser import SUPPORTED_FILE_EXTENSIONS, Parser, is_supported_file_extension
 from yuxi.knowledge.utils import calculate_content_hash, is_minio_url, parse_minio_url
 from yuxi.knowledge.utils.mindmap_utils import (
+    batch_remove_files_from_mindmap,
     generate_database_mindmap,
     get_database_mindmap_data,
     get_mindmap_database_files,
     get_mindmap_databases_overview,
     get_mindmap_diff,
+    remove_file_from_mindmap,
 )
 from yuxi.knowledge.utils.sample_question_utils import (
     generate_database_sample_questions,
@@ -1396,6 +1398,9 @@ async def batch_delete_documents(
             logger.error(f"批量删除过程中删除文档 {doc_id} 失败: {e}, {traceback.format_exc()}")
             failed_items.append({"doc_id": doc_id, "error": str(e)})
 
+    # 同步清理导图快照，移除已删除文件对应的叶子节点
+    await batch_remove_files_from_mindmap(kb_id, mindmap_removals)
+
     if failed_items:
         if deleted_count == 0:
             raise HTTPException(status_code=400, detail=f"批量删除失败: 所有 {len(failed_items)} 个文件均未删除。")
@@ -1428,6 +1433,10 @@ async def delete_document(kb_id: str, doc_id: str, current_user: User = Depends(
 
         # 无论MinIO删除是否成功，都继续从知识库删除
         await knowledge_base.delete_file(kb_id, doc_id)
+
+        # 同步清理导图快照，移除已删除文件对应的叶子节点
+        removed_filename = file_meta_info.get("meta", {}).get("filename", "")
+        await remove_file_from_mindmap(kb_id, doc_id, removed_filename)
         return {"message": "删除成功"}
     except Exception as e:
         logger.error(f"删除文档失败 {e}, {traceback.format_exc()}")

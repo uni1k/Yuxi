@@ -49,7 +49,7 @@ BUILTIN_SKILLS: list[BuiltinSkillSpec] = [
     BuiltinSkillSpec(
         slug="mysql-reporter",
         source_dir=_SKILLS_ROOT / "mysql-reporter",
-        description="生成 MySQL 查询报表并生成可视化图表。",
+        description="基于 MySQL 数据库生成查询报表和可视化图表，适合分析业务指标、统计趋势，并用 Charts MCP 展示结果。",
         version="2026.06.05",
         mcp_dependencies=("mcp-server-chart",),
     ),

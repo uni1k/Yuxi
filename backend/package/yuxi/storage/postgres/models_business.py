@@ -83,6 +83,7 @@ class User(Base):
     api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
 
     agent_env = relationship("AgentEnv", back_populates="user", cascade="all, delete-orphan", uselist=False)
+    user_config = relationship("UserConfig", back_populates="user", cascade="all, delete-orphan", uselist=False)
 
     def to_dict(self, include_password: bool = False) -> dict[str, Any]:
         result = {
@@ -149,6 +150,28 @@ class AgentEnv(Base):
         return {
             "uid": self.uid,
             "env": self.env or {},
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
+
+
+class UserConfig(Base):
+    """用户级配置"""
+
+    __tablename__ = "user_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uid = Column(String, ForeignKey("users.uid"), nullable=False, unique=True, index=True)
+    enable_memory = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+    user = relationship("User", back_populates="user_config")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "uid": self.uid,
+            "enable_memory": bool(self.enable_memory),
             "created_at": format_utc_datetime(self.created_at),
             "updated_at": format_utc_datetime(self.updated_at),
         }
@@ -711,7 +734,7 @@ class APIKey(Base):
     key_prefix = Column(String(16), nullable=False)
     name = Column(String(100), nullable=False)
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
 
     expires_at = Column(DateTime, nullable=True)
