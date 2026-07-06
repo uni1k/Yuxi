@@ -141,6 +141,18 @@
               <!-- 打招呼区域 - 在输入框上方 -->
               <div v-if="!conversations.length" class="chat-greeting-input">
                 <h1>{{ randomGreeting }}</h1>
+                <div class="chat-usage-guide">
+                  <p class="chat-usage-guide-title">使用提示</p>
+                  <div class="chat-usage-tips">
+                    <div v-for="tip in usageTips" :key="tip.title" class="chat-usage-tip">
+                      <component :is="tip.icon" :size="18" class="chat-usage-tip-icon" />
+                      <div class="chat-usage-tip-body">
+                        <span class="chat-usage-tip-title">{{ tip.title }}</span>
+                        <span class="chat-usage-tip-desc">{{ tip.desc }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <AgentInputArea
@@ -576,7 +588,7 @@ import {
   onDeactivated
 } from 'vue'
 import { message } from 'ant-design-vue'
-import { ChevronDown, FolderKanban, LayoutList, RefreshCw } from 'lucide-vue-next'
+import { BookOpen, Bot, ChevronDown, FileText, FolderKanban, LayoutList, Paperclip, RefreshCw } from 'lucide-vue-next'
 import { formatFileSize } from '@/utils/file_utils'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
@@ -650,6 +662,30 @@ const greetingMessages = [
 
 // 随机选择一个打招呼文本
 const randomGreeting = greetingMessages[Math.floor(Math.random() * greetingMessages.length)]
+
+// 新对话界面使用指南
+const usageTips = [
+  {
+    icon: BookOpen,
+    title: '@ 引用知识库',
+    desc: '在输入框中输入 @，选择「住建知识库」等政策文件库，AI 会基于库内文档回答。'
+  },
+  {
+    icon: Paperclip,
+    title: '上传附件',
+    desc: '点击输入框左侧的 + 上传 PDF、Word、Excel、图片等文件，AI 会阅读并分析内容。'
+  },
+  {
+    icon: FileText,
+    title: '生成办公文档',
+    desc: '直接要求输出 Word、Excel 或 PDF 格式的报告、材料或汇总表。'
+  },
+  {
+    icon: Bot,
+    title: '复杂任务用技能',
+    desc: '遇到需要多步骤分析或调研的问题，可调用「深度研究」等 Skill 协助处理。'
+  }
+]
 
 // 业务状态（保留在组件本地）
 const chatState = reactive({
@@ -3178,6 +3214,66 @@ watch(currentChatId, (threadId, oldThreadId) => {
     color: var(--gray-1000);
     margin: 0;
   }
+}
+
+.chat-usage-guide {
+  margin-top: 32px;
+  text-align: left;
+}
+
+.chat-usage-guide-title {
+  font-size: 0.85rem;
+  color: var(--gray-500);
+  margin: 0 0 12px;
+  text-align: center;
+}
+
+.chat-usage-tips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.chat-usage-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-150);
+  border-radius: 10px;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: var(--gray-100);
+  }
+}
+
+.chat-usage-tip-icon {
+  flex-shrink: 0;
+  color: var(--main-color);
+  margin-top: 2px;
+}
+
+.chat-usage-tip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-usage-tip-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--gray-1000);
+}
+
+.chat-usage-tip-desc {
+  font-size: 0.8rem;
+  color: var(--gray-600);
+  line-height: 1.4;
 }
 
 .agent-segment-wrapper {
