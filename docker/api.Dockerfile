@@ -1,3 +1,9 @@
+FROM maven:3.9.9-eclipse-temurin-8 AS ofdrw-builder
+WORKDIR /build/ofdrw
+COPY docker/ofdrw/pom.xml /build/ofdrw/pom.xml
+COPY docker/ofdrw/src /build/ofdrw/src
+RUN mvn -q -DskipTests package dependency:copy-dependencies -DincludeScope=runtime
+
 # 使用轻量级Python基础镜像
 FROM python:3.13-slim
 COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
@@ -62,9 +68,10 @@ COPY backend/package /app/package
 # 如果网络还是不好，可以在后面添加 --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 RUN uv sync --no-cache --group test --no-dev --frozen
 
-# 安装 easyofd 用于 OFD 转 PDF
-# 必须在 uv sync 之后安装，否则 uv sync 会清理掉未在 uv.lock 中声明的包
-RUN pip install --no-cache-dir easyofd
+COPY --from=ofdrw-builder /build/ofdrw/target/ofdrw-runner-1.0.0.jar /app/tools/ofdrw/ofdrw-runner.jar
+COPY --from=ofdrw-builder /build/ofdrw/target/dependency /app/tools/ofdrw/lib
+COPY docker/ofdrw/ofd2pdf.sh /usr/local/bin/yuxi-ofdrw-ofd2pdf
+RUN chmod +x /usr/local/bin/yuxi-ofdrw-ofd2pdf
 
 # 复制 server 代码
 COPY backend/server /app/server

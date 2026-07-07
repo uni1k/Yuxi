@@ -141,26 +141,26 @@ def test_normalize_file_for_parsing_converts_ofd_with_configured_converter(
         assert normalized_path.read_bytes() == b"converted pdf"
 
 
-def test_normalize_file_for_parsing_converts_ofd_with_easyofd(
+def test_normalize_file_for_parsing_converts_ofd_with_bundled_ofdrw(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     source_path = tmp_path / "invoice.ofd"
     source_path.write_bytes(b"fake ofd")
     monkeypatch.delenv("YUXI_OFD_TO_PDF_COMMAND", raising=False)
-    monkeypatch.setattr(preprocess.shutil, "which", lambda command: None)
 
-    class FakeOFD:
-        def read(self, _ofd_b64: str) -> None:
-            pass
+    def fake_which(command: str):
+        if command == "yuxi-ofdrw-ofd2pdf":
+            return "/usr/local/bin/yuxi-ofdrw-ofd2pdf"
+        return None
 
-        def to_pdf(self) -> bytes:
-            return b"converted pdf"
+    def fake_run(command, **kwargs):
+        assert command == ["/usr/local/bin/yuxi-ofdrw-ofd2pdf", str(source_path), str(Path(command[-1]))]
+        Path(command[-1]).write_bytes(b"converted pdf")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        def del_data(self) -> None:
-            pass
-
-    monkeypatch.setattr(preprocess, "_EasyOFD", FakeOFD)
+    monkeypatch.setattr(preprocess.shutil, "which", fake_which)
+    monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
 
     with preprocess.normalize_file_for_parsing(source_path) as normalized_path:
         assert normalized_path.suffix == ".pdf"
@@ -175,8 +175,7 @@ def test_normalize_file_for_parsing_raises_when_ofd_converter_is_missing(
     source_path.write_bytes(b"fake ofd")
     monkeypatch.delenv("YUXI_OFD_TO_PDF_COMMAND", raising=False)
     monkeypatch.setattr(preprocess.shutil, "which", lambda command: None)
-    monkeypatch.setattr(preprocess, "_EasyOFD", None)
 
-    with pytest.raises(preprocess.DocumentPreprocessError, match="OFD"):
+    with pytest.raises(preprocess.DocumentPreprocessError, match="ofdrw"):
         with preprocess.normalize_file_for_parsing(source_path):
             pass
