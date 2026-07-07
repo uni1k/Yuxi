@@ -11,7 +11,8 @@ from yuxi.utils.logging_config import logger
 WORKSPACE_AGENTS_PROMPT_MAX_BYTES = 64 * 1024
 DEFAULT_SUMMARY_THRESHOLD_K = 100  # 100K tokens
 DEFAULT_SUMMARY_KEEP_MESSAGES = 10
-DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT = 500
+DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT = 300
+DEFAULT_SUMMARY_L2_TRIGGER_RATIO = 0.4
 DEFAULT_MAX_EXECUTION_STEPS = 300
 DEFAULT_TOOL_RESULT_EVICTION_K_TOKENS = 3
 DEFAULT_YUXI_SUMMARY_PROMPT = """你是对话上下文压缩助手。
@@ -260,10 +261,25 @@ class BaseContext:
     summary_tool_result_token_limit: int = field(
         default=DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT,
         metadata={
-            "name": "摘要工具结果预览上限",
+            "name": "摘要工具结果 token 上限",
             "description": (
-                "上下文摘要清洗历史工具结果时，会将完整结果写入 outputs，并用路径和不超过该 token "
-                f"数的预览替换 ToolMessage 内容，默认 {DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT}。"
+                "上下文摘要 L1 清洗历史工具结果时，超过该 token 数的 ToolMessage 会写入 outputs，"
+                "并在上下文中保留不超过该 token 数的预览；未超过则保持原样。默认 "
+                f"{DEFAULT_SUMMARY_TOOL_RESULT_TOKEN_LIMIT}。"
+            ),
+            "type": "number",
+            "auth": "admin",
+        },
+    )
+
+    summary_l2_trigger_ratio: float = field(
+        default=DEFAULT_SUMMARY_L2_TRIGGER_RATIO,
+        metadata={
+            "name": "L2 摘要触发比例",
+            "description": (
+                "L1 结构精简后，剩余上下文超过 摘要触发阈值 * 该比例 时才进入 L2 summary。"
+                "建议范围 0.1 到 1.0，值越小越容易触发 L2，默认 "
+                f"{DEFAULT_SUMMARY_L2_TRIGGER_RATIO}。"
             ),
             "type": "number",
             "auth": "admin",
