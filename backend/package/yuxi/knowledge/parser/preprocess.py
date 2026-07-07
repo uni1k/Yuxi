@@ -9,9 +9,10 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
-CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".docm", ".wps", ".xls", ".et", ".ofd")
+CONVERTIBLE_FILE_EXTENSIONS: tuple[str, ...] = (".doc", ".docm", ".wps", ".xls", ".et")
 LIBREOFFICE_COMMANDS: tuple[str, ...] = ("soffice", "libreoffice")
 DEFAULT_CONVERT_TIMEOUT_SECONDS = 120
+OFD_IMAGE_EXTENSIONS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp")
 
 # 每种异构格式允许转换成的目标格式（按优先级排列）
 OFFICE_TARGET_FORMATS: dict[str, tuple[str, ...]] = {
@@ -59,8 +60,6 @@ def normalize_file_for_parsing(file_path: str | os.PathLike[str]) -> Iterator[Pa
 
         if actual_ext in OFFICE_TARGET_FORMATS:
             converted_path = _convert_office_document(work_path, output_dir)
-        elif actual_ext == ".ofd":
-            converted_path = _convert_ofd_document(work_path, output_dir)
         else:
             raise DocumentPreprocessError(f"不支持的预处理文件类型: {actual_ext}")
 
@@ -90,21 +89,27 @@ def _convert_office_document(source_path: Path, output_dir: Path) -> Path:
     raise DocumentPreprocessError(f"无法将 {source_path.suffix.lower()} 文件转换为可解析格式: {last_error}")
 
 
-def _convert_ofd_document(source_path: Path, output_dir: Path) -> Path:
-    output_path = output_dir / f"{source_path.stem}.pdf"
+@contextmanager
+def export_ofd_to_images(file_path: str | os.PathLike[str]) -> Iterator[list[Path]]:
+    source_path = Path(file_path)
+    if source_path.suffix.lower() != ".ofd":
+        raise DocumentPreprocessError(f"不支持的 OFD 文件类型: {source_path.suffix.lower()}")
 
-    converter_command = _resolve_ofd_converter_command()
-    if converter_command is None:
+    exporter_command = _resolve_ofd_export_command()
+    if exporter_command is None:
         raise DocumentPreprocessError(
-            "解析 OFD 文件需要可用的 ofdrw 转换命令，"
-            "可使用内置 yuxi-ofdrw-ofd2pdf 或通过 YUXI_OFD_TO_PDF_COMMAND 配置外部命令"
+            "解析 OFD 文件需要可用的 ofdrw 图片导出命令，"
+            "可使用内置 yuxi-ofdrw-ofd2images 或通过 YUXI_OFD_TO_IMAGE_COMMAND 配置外部命令"
         )
 
-    completed = _run_command([*converter_command, str(source_path), str(output_path)])
-    if completed.returncode != 0 or not output_path.exists():
-        error = _format_command_error(completed)
-        raise DocumentPreprocessError(f"OFD 文件转换为 PDF 失败: {error}")
-    return output_path
+    with tempfile.TemporaryDirectory(prefix="yuxi-ofd-images-") as temp_dir:
+        output_dir = Path(temp_dir)
+        completed = _run_command([*exporter_command, str(source_path), str(output_dir)])
+        image_paths = _find_exported_images(output_dir)
+        if completed.returncode != 0 or not image_paths:
+            error = _format_command_error(completed)
+            raise DocumentPreprocessError(f"OFD 导出图片失败: {error}")
+        yield image_paths
 
 
 def _find_libreoffice_command() -> str | None:
@@ -115,20 +120,27 @@ def _find_libreoffice_command() -> str | None:
     return None
 
 
-def _resolve_ofd_converter_command() -> list[str] | None:
-    configured_command = os.getenv("YUXI_OFD_TO_PDF_COMMAND")
+def _resolve_ofd_export_command() -> list[str] | None:
+    configured_command = os.getenv("YUXI_OFD_TO_IMAGE_COMMAND")
     if configured_command:
         return shlex.split(configured_command)
 
-    bundled_command = shutil.which("yuxi-ofdrw-ofd2pdf")
+    bundled_command = shutil.which("yuxi-ofdrw-ofd2images")
     if bundled_command:
         return [bundled_command]
 
-    resolved = shutil.which("ofd2pdf")
-    if resolved:
-        return [resolved]
-
     return None
+
+
+def _find_exported_images(output_dir: Path) -> list[Path]:
+    return sorted(
+        [
+            path
+            for path in output_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in OFD_IMAGE_EXTENSIONS
+        ],
+        key=lambda path: path.name,
+    )
 
 
 def _run_libreoffice_convert(

@@ -94,6 +94,37 @@ def test_parser_reuses_docx_path_after_wps_preprocess(tmp_path: Path, monkeypatc
     assert "Parser WPS content" in markdown
 
 
+def test_parser_parse_ofd_file_exports_images_and_joins_ocr_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source_path = tmp_path / "parser_test.ofd"
+    source_path.write_bytes(b"fake ofd")
+    page_1 = tmp_path / "page_1.png"
+    page_2 = tmp_path / "page_2.png"
+    _build_png(page_1)
+    _build_png(page_2)
+
+    @contextmanager
+    def fake_export_ofd_to_images(file_path: str):
+        assert Path(file_path) == source_path
+        yield [page_1, page_2]
+
+    calls: list[Path] = []
+
+    async def _fake_parse_image_async(file, params=None):
+        calls.append(Path(file))
+        return f"OCR {Path(file).stem}"
+
+    monkeypatch.setattr(parser_unified, "export_ofd_to_images", fake_export_ofd_to_images)
+    monkeypatch.setattr(parser_unified, "parse_image_async", _fake_parse_image_async)
+
+    markdown = Parser.parse(str(source_path), params={"ocr_engine": "rapid_ocr"})
+
+    assert markdown == "OCR page_1\n\nOCR page_2"
+    assert calls == [page_1, page_2]
+
+
 def test_convert_with_docling_reinserts_image_links_in_document_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -121,61 +121,62 @@ def test_normalize_file_for_parsing_converts_et_with_libreoffice(
         assert normalized_path.suffix == ".xlsx"
 
 
-def test_normalize_file_for_parsing_converts_ofd_with_configured_converter(
+def test_export_ofd_to_images_uses_configured_exporter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     source_path = tmp_path / "invoice.ofd"
     source_path.write_bytes(b"fake ofd")
-    monkeypatch.setenv("YUXI_OFD_TO_PDF_COMMAND", "ofd2pdf")
+    monkeypatch.setenv("YUXI_OFD_TO_IMAGE_COMMAND", "ofd2images")
 
     def fake_run(command, **kwargs):
-        assert command == ["ofd2pdf", str(source_path), str(Path(command[-1]))]
-        Path(command[-1]).write_bytes(b"converted pdf")
+        assert command == ["ofd2images", str(source_path), str(Path(command[-1]))]
+        output_dir = Path(command[-1])
+        (output_dir / "page_2.png").write_bytes(b"page2")
+        (output_dir / "page_1.png").write_bytes(b"page1")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
 
-    with preprocess.normalize_file_for_parsing(source_path) as normalized_path:
-        assert normalized_path.suffix == ".pdf"
-        assert normalized_path.read_bytes() == b"converted pdf"
+    with preprocess.export_ofd_to_images(source_path) as image_paths:
+        assert [path.name for path in image_paths] == ["page_1.png", "page_2.png"]
 
 
-def test_normalize_file_for_parsing_converts_ofd_with_bundled_ofdrw(
+def test_export_ofd_to_images_uses_bundled_ofdrw(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     source_path = tmp_path / "invoice.ofd"
     source_path.write_bytes(b"fake ofd")
-    monkeypatch.delenv("YUXI_OFD_TO_PDF_COMMAND", raising=False)
+    monkeypatch.delenv("YUXI_OFD_TO_IMAGE_COMMAND", raising=False)
 
     def fake_which(command: str):
-        if command == "yuxi-ofdrw-ofd2pdf":
-            return "/usr/local/bin/yuxi-ofdrw-ofd2pdf"
+        if command == "yuxi-ofdrw-ofd2images":
+            return "/usr/local/bin/yuxi-ofdrw-ofd2images"
         return None
 
     def fake_run(command, **kwargs):
-        assert command == ["/usr/local/bin/yuxi-ofdrw-ofd2pdf", str(source_path), str(Path(command[-1]))]
-        Path(command[-1]).write_bytes(b"converted pdf")
+        assert command == ["/usr/local/bin/yuxi-ofdrw-ofd2images", str(source_path), str(Path(command[-1]))]
+        output_dir = Path(command[-1])
+        (output_dir / "page_1.png").write_bytes(b"page1")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(preprocess.shutil, "which", fake_which)
     monkeypatch.setattr(preprocess.subprocess, "run", fake_run)
 
-    with preprocess.normalize_file_for_parsing(source_path) as normalized_path:
-        assert normalized_path.suffix == ".pdf"
-        assert normalized_path.read_bytes() == b"converted pdf"
+    with preprocess.export_ofd_to_images(source_path) as image_paths:
+        assert [path.name for path in image_paths] == ["page_1.png"]
 
 
-def test_normalize_file_for_parsing_raises_when_ofd_converter_is_missing(
+def test_export_ofd_to_images_raises_when_exporter_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
     source_path = tmp_path / "invoice.ofd"
     source_path.write_bytes(b"fake ofd")
-    monkeypatch.delenv("YUXI_OFD_TO_PDF_COMMAND", raising=False)
+    monkeypatch.delenv("YUXI_OFD_TO_IMAGE_COMMAND", raising=False)
     monkeypatch.setattr(preprocess.shutil, "which", lambda command: None)
 
     with pytest.raises(preprocess.DocumentPreprocessError, match="ofdrw"):
-        with preprocess.normalize_file_for_parsing(source_path):
+        with preprocess.export_ofd_to_images(source_path):
             pass

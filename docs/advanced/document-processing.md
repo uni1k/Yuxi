@@ -11,7 +11,7 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 | 文本 | .txt, .md, .html, .htm | 直接提取内容 |
 | Word / WPS | .docx, .doc, .docm, .wps | `.docx` 直接解析；`.doc`/`.docm`/`.wps` 会先转换为可解析格式 |
 | PowerPoint | .pptx | 保留主要文本结构 |
-| PDF / OFD | .pdf, .ofd | `.ofd` 会先转换为 PDF，支持文本和图片 PDF |
+| PDF / OFD | .pdf, .ofd | `.ofd` 会先导出为逐页图片，再复用 OCR 链路提取文本 |
 | 表格 | .csv, .xls, .xlsx, .et | `.xlsx`/`.csv` 直接解析；`.xls`/`.et` 会先转换为 `.xlsx` |
 | JSON | .json | 结构化数据 |
 
@@ -21,7 +21,7 @@ Yuxi 支持多种文档格式的智能解析，从简单的文本文件到复杂
 - .jpg, .jpeg, .png, .bmp, .tiff, .tif
 
 ::: tip 旧版 Office 与 OFD 转换依赖
-`.doc`、`.docm`、`.wps`、`.xls`、`.et` 解析依赖运行环境中可用的 LibreOffice/soffice；`.ofd` 解析默认使用内置 `ofdrw` 命令 `yuxi-ofdrw-ofd2pdf` 转换为 PDF，也可通过 `YUXI_OFD_TO_PDF_COMMAND` 指定外部转换命令（按 `<command> <input.ofd> <output.pdf>` 形式调用）。转换后的文件会继续复用现有的 DOCX/XLSX/PDF 解析流程。
+`.doc`、`.docm`、`.wps`、`.xls`、`.et` 解析依赖运行环境中可用的 LibreOffice/soffice；`.ofd` 解析默认使用内置 `ofdrw` 命令 `yuxi-ofdrw-ofd2images` 导出逐页图片，也可通过 `YUXI_OFD_TO_IMAGE_COMMAND` 指定外部导出命令（按 `<command> <input.ofd> <output-dir>` 形式调用）。导出的图片会按页序复用现有 OCR 解析流程。
 :::
 
 ### 压缩包

@@ -20,7 +20,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from markdownify import markdownify as md_convert
 
 from yuxi.knowledge.parser.zip_utils import process_zip_file as _process_zip_file
-from yuxi.knowledge.parser.preprocess import normalize_file_for_parsing
+from yuxi.knowledge.parser.preprocess import export_ofd_to_images, normalize_file_for_parsing
 from yuxi.storage.minio import get_minio_client
 from yuxi.utils import logger
 
@@ -317,6 +317,15 @@ async def parse_image_async(file, params=None):
     return await asyncio.to_thread(parse_image, file, params=params)
 
 
+async def _parse_ofd_as_markdown(file_path: str, params: dict | None = None) -> str:
+    with export_ofd_to_images(file_path) as image_paths:
+        page_texts = [
+            (await parse_image_async(str(image_path), params=params)).strip()
+            for image_path in image_paths
+        ]
+    return "\n\n".join(text for text in page_texts if text)
+
+
 async def _process_file_to_markdown_core(
     file_path: str, params: dict | None = None
 ) -> tuple[str, str | None, dict[str, Any]]:
@@ -361,6 +370,12 @@ async def _process_file_to_markdown_core(
 
     preprocess_stack = ExitStack()
     try:
+        original_file_ext = Path(actual_file_path).suffix.lower()
+        if original_file_ext == ".ofd":
+            file_ext = ".ofd"
+            result = await _parse_ofd_as_markdown(actual_file_path, params=params)
+            return result, file_ext, artifacts
+
         file_path_obj = Path(preprocess_stack.enter_context(normalize_file_for_parsing(actual_file_path)))
         file_ext = file_path_obj.suffix.lower()
 

@@ -70,8 +70,8 @@ RUN uv sync --no-cache --group test --no-dev --frozen
 
 COPY --from=ofdrw-builder /build/ofdrw/target/ofdrw-runner-1.0.0.jar /app/tools/ofdrw/ofdrw-runner.jar
 COPY --from=ofdrw-builder /build/ofdrw/target/dependency /app/tools/ofdrw/lib
-COPY docker/ofdrw/ofd2pdf.sh /usr/local/bin/yuxi-ofdrw-ofd2pdf
-RUN chmod +x /usr/local/bin/yuxi-ofdrw-ofd2pdf
+COPY docker/ofdrw/ofd2images.sh /usr/local/bin/yuxi-ofdrw-ofd2images
+RUN chmod +x /usr/local/bin/yuxi-ofdrw-ofd2images
 
 # 复制 server 代码
 COPY backend/server /app/server
